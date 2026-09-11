@@ -1,10 +1,10 @@
 # zai2api
 
-[![OpenAI Compatible](https://img.shields.io/badge/API-OpenAI%20Compatible-000000?style=flat-square)](https://github.com/bchhngsaygez/zai2api)
-[![Node.js Version](https://img.shields.io/badge/Node.js-%3E%3D22.0.0-000000?style=flat-square&logo=node.js)](https://nodejs.org)
-[![Engine](https://img.shields.io/badge/Engine-Camoufox%20Gecko-000000?style=flat-square&logo=firefoxbrowser)](https://github.com/bchhngsaygez/zai2api)
-[![Docker Ready](https://img.shields.io/badge/Docker-Ready-000000?style=flat-square&logo=docker)](https://github.com/bchhngsaygez/zai2api)
-[![License: MIT](https://img.shields.io/badge/License-MIT-000000?style=flat-square)](LICENSE)
+[![OpenAI Compatible](https://img.shields.io/badge/API-OpenAI%20Compatible-000000?)](https://github.com/bchhngsaygez/zai2api)
+[![Docker Ready](https://img.shields.io/badge/Docker-Ready-000000?&logo=docker)](https://github.com/bchhngsaygez/zai2api)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js](https://img.shields.io/badge/Node.js-22%2B-green.svg?&logo=nodejs)](https://nodejs.org/)
+[![Engine](https://img.shields.io/badge/Engine-Camoufox-orange.svg)](https://github.com/daijro/camoufox)
 
 OpenAI-compatible API proxy for Z.ai (GLM-5.3-Flash / GLM-5.3) web chat. Designed for coding assistants (Cline, Roo Code, Cursor), featuring stealth browser automation, robust tool calling, low RAM usage, and instant public tunneling.
 
