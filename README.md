@@ -4,6 +4,17 @@ OpenAI-compatible API proxy for Z.ai (GLM-5.3-Flash / GLM-5.3) web chat. Designe
 
 ---
 
+## DISCLAIMER
+
+> **IMPORTANT**:
+> - This project is an independent open-source tool developed **strictly for educational, personal research, and interoperability purposes**.
+> - It is **not affiliated with, endorsed by, maintained, or sponsored by Zhipu AI, Z.ai, or any of their subsidiaries**.
+> - This software automates interaction with web interfaces. Users are solely responsible for complying with the third-party provider's Terms of Service, Acceptable Use Policies, and rate limits.
+> - The maintainers assume no liability or responsibility for account suspensions, rate limits, service disruptions, or any damages arising from the use or misuse of this software.
+> - Provided AS-IS without warranty of any kind. Use responsibly and at your own risk.
+
+---
+
 ## Features
 
 - **OpenAI Compatible**: Drop-in replacement for `/v1/chat/completions` with streaming (`stream: true`), function calling, and reasoning content (`thinking_mode`).
@@ -24,7 +35,7 @@ OpenAI-compatible API proxy for Z.ai (GLM-5.3-Flash / GLM-5.3) web chat. Designe
 Requires **Node.js 22+**:
 
 ```bash
-git clone https://github.com/whoamix/zai2api.git
+git clone https://github.com/bchhngsaygez/zai2api.git
 cd zai2api
 npm install
 ```
