@@ -435,18 +435,24 @@ export class BrowserController extends EventEmitter {
             console.log('[Browser] Stream idle after tokens received. Finalizing...');
             finish();
           }
-        }, 3500);
+        }, 20000);
       }
     };
 
-    // Overall request timeout safety guard
-    timeoutTimer = setTimeout(() => {
-      if (fullAnswer.length > 0) {
-        finish();
-      } else {
-        fail(new Error(`Z.ai response timed out after ${config.timeoutMs}ms`));
-      }
-    }, config.timeoutMs);
+    // Request inactivity timeout safety guard (resets as long as tokens are arriving)
+    const resetInactivityTimer = () => {
+      if (timeoutTimer) clearTimeout(timeoutTimer);
+      timeoutTimer = setTimeout(() => {
+        if (fullAnswer.length > 0) {
+          console.warn(`[Browser] Stream inactivity timeout after ${config.timeoutMs}ms. Finalizing with received content...`);
+          finish();
+        } else {
+          fail(new Error(`Z.ai response timed out after ${config.timeoutMs}ms of inactivity`));
+        }
+      }, config.timeoutMs);
+    };
+
+    resetInactivityTimer();
 
     // Peak-Hour TTFT Threshold & Fallback
     const isStandardModel = model && !model.toLowerCase().includes('flash');
@@ -585,12 +591,14 @@ export class BrowserController extends EventEmitter {
                     firstTokenReceived = true;
                     if (ttftTimer) clearTimeout(ttftTimer);
                     resetIdleTimer();
+                    resetInactivityTimer();
                     fullReasoning += delta_content;
                     if (onReasoning) onReasoning(delta_content);
                   } else if (phase === 'answer' && delta_content) {
                     firstTokenReceived = true;
                     if (ttftTimer) clearTimeout(ttftTimer);
                     resetIdleTimer();
+                    resetInactivityTimer();
                     fullAnswer += delta_content;
                     if (onDelta) onDelta(delta_content);
                   } else if (phase === 'other' && usage) {

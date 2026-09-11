@@ -47,7 +47,8 @@ CRITICAL INVOCATION RULES:
 4. NEVER ASK QUESTIONS IN PLAIN TEXT: If you genuinely need user confirmation, clarification, or a decision, you MUST invoke the question tool (e.g. ask_followup_question or ask_question) as a tool call with the question and selectable options. DO NOT write questions in plain conversational text.
 5. STOP GENERATION: Stop immediately after the closing \`\`\` of the JSON tool block. NEVER fabricate simulated tool outputs.
 6. COMPLETE FILES IN ONE CALL: When creating a new file or writing code, ALWAYS write the COMPLETE, fully functional file in ONE single tool call from start to end. NEVER split a file into multiple chunks (e.g. NEVER do "Part 1 now, Part 2 later", NEVER leave placeholders like "// TODO" or "// ===PART2===").
-7. FILE EDITING RULES: For creating a new file with the "editor" tool, provide "path" and "new_text" (do NOT provide "old_text"). For modifying an EXISTING file with "editor", you MUST supply BOTH "old_text" (the exact lines to replace) and "new_text" (the replacement).`;
+7. FILE EDITING RULES: For creating a new file with the "editor" tool, provide "path" and "new_text" (do NOT provide "old_text"). For modifying an EXISTING file with "editor", you MUST supply BOTH "old_text" (the exact lines to replace) and "new_text" (the replacement).
+8. NO CHARACTER LIMIT: There is NO 6000-character limit, NO token limit, and NO file size limit. NEVER claim or assume there is a character limit. NEVER use chunking workarounds like <!--NEXT-->, <!--PART2-->, or multi-turn file construction. You MUST generate the entire file completely in one single tool call from start to finish.`;
   }
 
   // 2. Process conversation messages

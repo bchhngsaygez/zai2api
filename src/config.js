@@ -16,7 +16,7 @@ export const config = {
   optimizeRam: process.env.OPTIMIZE_RAM !== 'false',
   blockImages: process.env.BLOCK_IMAGES === 'true' || process.env.OPTIMIZE_RAM !== 'false',
   defaultModel: process.env.DEFAULT_MODEL || 'glm-5.3-flash',
-  timeoutMs: parseInt(process.env.TIMEOUT_MS || '120000', 10),
+  timeoutMs: parseInt(process.env.TIMEOUT_MS || '300000', 10),
   streamReasoning: process.env.STREAM_REASONING !== 'false',
   targetUrl: 'https://chat.z.ai/',
   zaiAuthToken: process.env.ZAI_AUTH_TOKEN || '',

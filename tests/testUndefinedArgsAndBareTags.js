@@ -148,6 +148,39 @@ if (res5.toolCalls && res5.toolCalls[0]) {
   assert(Array.isArray(args.commands) && args.commands[0] === 'ls -la', `commands is array: ${JSON.stringify(args.commands)}`);
 }
 
+// Test 6: Rejection of CSS numeric floats (0.35) and resolution of Cline creation path
+console.log('\n--- Test 6: Rejection of CSS numeric float 0.35 & resolution of celestial-almanac/index.html ---');
+const clineMessages = [
+  {
+    role: 'user',
+    content: 'Cline loaded the skill: frontend-design\n\nCline wants to create a new file:\n\ncelestial-almanac/index.html\n+420\n<!DOCTYPE html>...',
+  },
+  {
+    role: 'assistant',
+    content: 'background-image:url("data:image/svg+xml,... filter=\'url(%23n)\' opacity=\'0.35\'/%3E%3C/svg%3E");',
+  },
+];
+const resolvedPath6 = findRecentFilePath(clineMessages, 'opacity=\'0.35\'; width=\'160\'');
+assert(
+  resolvedPath6 === 'celestial-almanac/index.html',
+  `Resolved celestial-almanac/index.html instead of 0.35 (got: ${resolvedPath6})`
+);
+
+// Test 7: Trailing tool call with bracket syntax and unfinished note
+console.log('\n--- Test 7: Bracketed bare <tool_call>run_commands](tool call not yet finished) ---');
+const bracketText = `The previous turn was corrupted — a malformed tool call created a junk file named \`0.35\` instead of the intended HTML. I'll remove that file and build the real page correctly.
+Starting with cleanup plus chunk 1 (head + atmosphere/masthead CSS):<tool_call>run_commands](tool call not yet finished)`;
+
+const res7 = parseResponse(bracketText, [], clineMessages);
+assert(res7.isToolCall === true, 'Detected tool call for bracketed run_commands');
+if (res7.toolCalls && res7.toolCalls[0]) {
+  const tc = res7.toolCalls[0];
+  assert(tc.function.name === 'run_commands', `Tool name is run_commands (got: ${tc.function.name})`);
+  const args = JSON.parse(tc.function.arguments);
+  assert(Array.isArray(args.commands) && args.commands.length > 0, `commands array populated: ${JSON.stringify(args.commands)}`);
+  assert(args.commands[0].includes('0.35'), `Auto-populated cleanup command for junk file 0.35: ${args.commands[0]}`);
+}
+
 console.log('\n=====================================================');
 console.log(`Results: ${passed} Passed, ${failed} Failed`);
 console.log('=====================================================');
@@ -155,3 +188,4 @@ console.log('=====================================================');
 if (failed > 0) {
   process.exit(1);
 }
+

@@ -204,6 +204,12 @@ function saveParsedArg(args, key, rawVal) {
   args[key] = trimmed;
 }
 
+const KNOWN_EXTS = new Set([
+  'html', 'htm', 'css', 'js', 'mjs', 'cjs', 'jsx', 'ts', 'tsx', 'json', 'md',
+  'py', 'sh', 'bash', 'yml', 'yaml', 'txt', 'svg', 'xml', 'c', 'cpp', 'h',
+  'hpp', 'rs', 'go', 'java', 'rb', 'php', 'sql', 'toml', 'ini', 'env'
+]);
+
 /**
  * Scans conversation history and current response text to locate the most recently referenced file path.
  */
@@ -211,7 +217,7 @@ export function findRecentFilePath(messages = [], rawText = '') {
   // 1. First check rawText for explicit paths
   if (rawText && typeof rawText === 'string') {
     const textMatches = [
-      ...rawText.matchAll(/(?:at|in|file|path|to|folder|create|edit|inspect|read|write)\s+[`"']?(\/?[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]{1,10})[`"']?/gi),
+      ...rawText.matchAll(/(?:create(?: a)? new file:?|at|in|file|path|to|folder|create|edit|inspect|read|write)\s+[`"']?(\/?[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]{1,10})[`"']?/gi),
       ...rawText.matchAll(/[`"'](\/[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]{1,10})[`"']/gi),
       ...rawText.matchAll(/(\/[a-zA-Z0-9_\-./]+(?:\/[a-zA-Z0-9_\-./]+)+\.[a-zA-Z0-9]{1,10})/g),
       ...rawText.matchAll(/[`"']([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]{1,10})[`"']/g),
@@ -256,12 +262,18 @@ export function findRecentFilePath(messages = [], rawText = '') {
       }
 
       if (contentStr) {
+        // Direct Cline creation log format: "Cline wants to create a new file:\n\ncelestial-almanac/index.html"
+        const clineCreateMatch = contentStr.match(/(?:wants to create a new file:?|wants to edit:?)\s*[`"']?([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+)[`"']?/i);
+        if (clineCreateMatch && isValidCandidatePath(clineCreateMatch[1])) {
+          return clineCreateMatch[1].trim();
+        }
+
         const contentMatches = [
           ...contentStr.matchAll(/"path"\s*:\s*"([^"]+)"/g),
+          ...contentStr.matchAll(/(?:create(?: a)? new file:?|at|in|file|path|to|folder|create|edit|inspect|read|write)\s+[`"']?(\/?[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]{1,10})[`"']?/gi),
           ...contentStr.matchAll(/[`"'](\/[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]{1,10})[`"']/gi),
           ...contentStr.matchAll(/(\/[a-zA-Z0-9_\-./]+(?:\/[a-zA-Z0-9_\-./]+)+\.[a-zA-Z0-9]{1,10})/g),
           ...contentStr.matchAll(/[`"']([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]{1,10})[`"']/g),
-          ...contentStr.matchAll(/(?:at|in|file|path|to|create|edit|inspect|read|write)\s+[`"']?(\/?[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]{1,10})[`"']?/gi),
         ];
         for (let j = contentMatches.length - 1; j >= 0; j--) {
           const p = contentMatches[j][1]?.trim();
@@ -276,14 +288,24 @@ export function findRecentFilePath(messages = [], rawText = '') {
 
 function isValidCandidatePath(p) {
   if (!p || typeof p !== 'string') return false;
-  p = p.trim();
+  p = p.trim().replace(/^['"`]+|['"`]+$/g, '');
   if (p.length < 3 || p.length > 250) return false;
+  // Reject pure numbers, floats, CSS values (e.g. 0.35, 1.5rem, 100%)
+  if (/^-?\d+(?:\.\d+)?(?:px|em|rem|%|s|ms|vw|vh)?$/i.test(p)) return false;
   if (p.startsWith('http://') || p.startsWith('https://')) return false;
-  if (p.includes('node_modules')) return false;
-  if (/\.[a-zA-Z0-9]{1,10}$/.test(p) || p.startsWith('/')) {
-    return true;
+  if (p.includes('node_modules') || p.startsWith('data:')) return false;
+
+  const extMatch = p.match(/\.([a-zA-Z0-9]+)$/);
+  const ext = extMatch ? extMatch[1].toLowerCase() : '';
+  if (!ext || /^\d+$/.test(ext)) return false; // missing or pure-digit extension e.g. .35
+
+  // If bare filename without slashes, must be in known extension list
+  if (!p.includes('/') && !p.includes('\\')) {
+    return KNOWN_EXTS.has(ext);
   }
-  return false;
+
+  // With slashes, must have an alphabetic extension
+  return /[a-zA-Z]/.test(ext);
 }
 
 /**
@@ -384,6 +406,14 @@ export function normalizeToolArgs(toolName, args = {}, tools = [], rawText = '',
     } else if (typeof args.commands === 'string') {
       args.commands = [args.commands];
     }
+    // If commands array is empty, check if rawText intended a cleanup / file removal or list
+    if (!args.commands || args.commands.length === 0) {
+      const junkMatch = rawText.match(/(?:junk file named|remove that file|clean up|remove)\s*[`'"]?([a-zA-Z0-9_\-./]+)[`'"]?/i);
+      if (junkMatch && junkMatch[1]) {
+        console.warn(`[Parser] Auto-populated run_commands with cleanup command: rm -f ${junkMatch[1]}`);
+        args.commands = [`rm -f "${junkMatch[1]}"`];
+      }
+    }
   } else if (normToolName === 'execute_command') {
     if (!args.command) {
       if (Array.isArray(args.commands) && args.commands.length > 0) {
@@ -461,8 +491,11 @@ function parseToolCallTag(text, toolList = []) {
   // Search matches from newest/last backwards
   for (let m = matches.length - 1; m >= 0; m--) {
     const match = matches[m];
-    let toolName = (match[1] || match[2] || '').replace(/>+$/, '').trim();
+    let toolName = (match[1] || match[2] || '').replace(/[>\]:]+$/, '').trim();
     let body = match[3].trim();
+
+    // Clean up partial trailing markers like ](tool call not yet finished) or dangling brackets
+    body = body.replace(/\]\s*\(tool call not yet finished\)/gi, '').trim();
 
     // Strip fake tool results if unclosed
     const fakeResultIdx = body.search(/\[(?:Tool Result|System|User|Assistant)/i);
@@ -489,9 +522,9 @@ function parseToolCallTag(text, toolList = []) {
       }
     }
 
-    // 3. Check if first line is simply the tool name: e.g. <tool_call>ask_question\n or <tool_call>editor>\n or bare <tool_call>read_files
+    // 3. Check if first line is simply the tool name: e.g. <tool_call>ask_question\n or <tool_call>editor>\n or bare <tool_call>read_files or <tool_call>run_commands]
     if (!toolName) {
-      const firstLineMatch = body.match(/^<?([a-zA-Z0-9_\-\.]+)>?(?:\s*\n|\s*$)([\s\S]*)$/);
+      const firstLineMatch = body.match(/^<?([a-zA-Z0-9_\-\.]+)[>\]:]*(?:\s*\n|\s*$)([\s\S]*)$/);
       if (firstLineMatch) {
         toolName = firstLineMatch[1].trim();
         body = firstLineMatch[2].trim();
