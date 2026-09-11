@@ -420,6 +420,98 @@ export function parseResponse(rawText, tools = []) {
     }
   }
 
+  // 4. Fallback: Check if the model stalled on a question or decision prompt without calling the question tool
+  const questionTool = (tools || []).find(t => {
+    const name = (t.function?.name || t.name || '').toLowerCase();
+    return name === 'ask_followup_question' || name === 'ask_question';
+  });
+
+  if (questionTool) {
+    const isQuestionStall = (
+      /\?\s*$/.test(trimmed) ||
+      /(?:decision|question|clarification|choice|preference|confirmation)(?:\s+(?:needed|required|is needed))?(?:\s+(?:from|for)\s+you)?[\s:]*$/i.test(trimmed) ||
+      /(?:please\s+(?:let me know|choose|select|confirm|specify|tell me))[\s\S]{0,80}:?\s*$/i.test(trimmed)
+    );
+
+    if (isQuestionStall) {
+      const qToolName = questionTool.function?.name || questionTool.name;
+      console.warn(`[Parser] Detected conversational question stall without tool call. Auto-synthesizing ${qToolName}...`);
+      const { question, options } = extractQuestionAndOptions(trimmed);
+      return {
+        isToolCall: true,
+        toolCalls: [
+          {
+            id: `call_${crypto.randomBytes(8).toString('hex')}`,
+            type: 'function',
+            function: {
+              name: qToolName,
+              arguments: JSON.stringify({ question, options }),
+            },
+          },
+        ],
+        content: trimmed.length > 50 ? trimmed : null,
+      };
+    }
+  }
+
   // Standard plain text
   return { isToolCall: false, content: rawText };
+}
+
+/**
+ * Extracts question text and selectable options from conversational stall text.
+ */
+function extractQuestionAndOptions(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  let question = 'Please confirm how you would like to proceed with this task:';
+  const options = [];
+
+  // Check for bullet or numbered options
+  for (const line of lines) {
+    const optMatch = line.match(/^(?:[-*•]|\d+[\.)])\s+(.*)$/);
+    if (optMatch && optMatch[1].length < 120 && !line.includes('**Implement') && !line.includes('**Verify') && !line.includes('**Decide')) {
+      options.push(optMatch[1].trim());
+    }
+  }
+
+  // Find the question line or decision prompt
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i];
+    if (line.includes('?') || /(?:decision|question|where|which|confirm|stack|location)/i.test(line)) {
+      const cleaned = line
+        .replace(/^[#*\-•\d\.\)]+\s*/, '')
+        .replace(/^(?:One quick decision needed from you|Quick question for you|Please let me know|A quick question for you)[\s:]*/i, '')
+        .trim();
+      if (cleaned.length > 5 && cleaned.length < 200) {
+        question = cleaned;
+      }
+      break;
+    }
+  }
+
+  if (question.endsWith(':')) question = question.slice(0, -1).trim();
+  if (!question.endsWith('?')) question += '?';
+
+  if (options.length === 0) {
+    if (/(?:location|folder|directory|where)/i.test(text)) {
+      options.push(
+        'New dedicated folder in workspace (Recommended)',
+        'Current workspace root directory',
+        "Different location — I'll specify path"
+      );
+    } else if (/(?:stack|language|framework|version)/i.test(text)) {
+      options.push(
+        'HTML5 / CSS / JavaScript (runs in any browser)',
+        'Python',
+        'Standard default stack'
+      );
+    } else {
+      options.push(
+        'Proceed with recommended configuration',
+        'Let me customize details'
+      );
+    }
+  }
+
+  return { question, options };
 }

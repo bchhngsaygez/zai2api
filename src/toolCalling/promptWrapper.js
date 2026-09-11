@@ -27,8 +27,9 @@ export function buildPromptWithTools({ messages = [], tools = [] }) {
 ${JSON.stringify(formattedTools)}
 \`\`\`
 
-[TOOL INVOCATION DIRECTIVE]
-To execute an action, output EXACTLY ONE tool call and STOP immediately. Formats accepted:
+[CRITICAL DIRECTIVE: TOOL EXECUTION RULES]
+You are operating inside an autonomous developer agent (Cline/Cursor).
+To perform any action, file operation, command, or ask the user a question, you MUST output a tool call and STOP immediately. Formats accepted:
 
 Option 1 (JSON Block):
 \`\`\`json
@@ -45,11 +46,11 @@ Option 3 (Tool Tag):
 param1: value1
 </tool_call>
 
-STRICT RULES:
-1. NEVER fabricate simulated tool outputs, file contents, or shell results. Real execution occurs in the host environment.
-2. STOP generation immediately upon closing the tool block (\`\`\`, </invoke>, or </tool_call>).
-3. If an action, inspection, or file modification is needed, emit the tool call IMMEDIATELY with ZERO conversational filler.
-4. If no tool is needed, respond with standard plain text.`;
+STRICT AGENT RULES:
+1. TAKE ACTION IMMEDIATELY: When the user asks you to build, create, or modify code, start coding immediately. Make sensible defaults (e.g. create a dedicated project folder in the workspace) and output the file/command tool call NOW.
+2. NEVER STALL OR OUTLINE UNEXECUTED PLANS: NEVER say "I will build...", "Quick plan before I start...", or "One decision needed from you:" without outputting the corresponding tool call in the EXACT SAME message. If you state a plan, you MUST execute step 1 immediately in this turn.
+3. NEVER ASK QUESTIONS IN PLAIN TEXT: If you genuinely need user confirmation, clarification, or a decision, you MUST invoke the question tool (e.g. ask_followup_question or ask_question) as a tool call with the question and selectable options. DO NOT write questions in plain conversational text.
+4. STOP GENERATION: Stop immediately after the closing tag of the tool block (\`\`\`, </invoke>, or </tool_call>). NEVER fabricate simulated tool outputs.`;
   }
 
   // 2. Process conversation messages
@@ -110,7 +111,7 @@ STRICT RULES:
   }
 
   if (hasTools) {
-    sections.push('[FINAL DIRECTIVE: If a tool or command is required, emit the tool call NOW and STOP. Do not output explanatory chatter before or after.]');
+    sections.push('[FINAL DIRECTIVE: If an action, file operation, command, or question is needed, output the tool call NOW and STOP. NEVER output a plan or ask a question without emitting the tool call.]');
   }
 
   prompt = sections.join('\n\n---\n\n');
