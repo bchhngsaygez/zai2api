@@ -205,6 +205,230 @@ function saveParsedArg(args, key, rawVal) {
 }
 
 /**
+ * Scans conversation history and current response text to locate the most recently referenced file path.
+ */
+export function findRecentFilePath(messages = [], rawText = '') {
+  // 1. First check rawText for explicit paths
+  if (rawText && typeof rawText === 'string') {
+    const textMatches = [
+      ...rawText.matchAll(/(?:at|in|file|path|to|folder|create|edit|inspect|read|write)\s+[`"']?(\/?[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]{1,10})[`"']?/gi),
+      ...rawText.matchAll(/[`"'](\/[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]{1,10})[`"']/gi),
+      ...rawText.matchAll(/(\/[a-zA-Z0-9_\-./]+(?:\/[a-zA-Z0-9_\-./]+)+\.[a-zA-Z0-9]{1,10})/g),
+      ...rawText.matchAll(/[`"']([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]{1,10})[`"']/g),
+    ];
+    for (let i = textMatches.length - 1; i >= 0; i--) {
+      const p = textMatches[i][1]?.trim();
+      if (isValidCandidatePath(p)) return p;
+    }
+  }
+
+  // 2. Scan messages backwards
+  if (Array.isArray(messages)) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (!msg) continue;
+
+      // Check tool_calls in assistant message
+      if (msg.tool_calls && Array.isArray(msg.tool_calls)) {
+        for (const tc of msg.tool_calls) {
+          const fn = tc.function || {};
+          let args = fn.arguments;
+          if (typeof args === 'string') {
+            try { args = JSON.parse(args); } catch (e) { args = {}; }
+          }
+          if (args && typeof args === 'object') {
+            if (args.path && isValidCandidatePath(args.path)) return args.path;
+            if (args.file && isValidCandidatePath(args.file)) return args.file;
+            if (Array.isArray(args.files) && args.files[0]) {
+              const fp = typeof args.files[0] === 'string' ? args.files[0] : args.files[0].path;
+              if (isValidCandidatePath(fp)) return fp;
+            }
+          }
+        }
+      }
+
+      // Check message content
+      let contentStr = '';
+      if (typeof msg.content === 'string') {
+        contentStr = msg.content;
+      } else if (Array.isArray(msg.content)) {
+        contentStr = msg.content.map(c => (typeof c === 'string' ? c : c.text || '')).join('\n');
+      }
+
+      if (contentStr) {
+        const contentMatches = [
+          ...contentStr.matchAll(/"path"\s*:\s*"([^"]+)"/g),
+          ...contentStr.matchAll(/[`"'](\/[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]{1,10})[`"']/gi),
+          ...contentStr.matchAll(/(\/[a-zA-Z0-9_\-./]+(?:\/[a-zA-Z0-9_\-./]+)+\.[a-zA-Z0-9]{1,10})/g),
+          ...contentStr.matchAll(/[`"']([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]{1,10})[`"']/g),
+          ...contentStr.matchAll(/(?:at|in|file|path|to|create|edit|inspect|read|write)\s+[`"']?(\/?[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]{1,10})[`"']?/gi),
+        ];
+        for (let j = contentMatches.length - 1; j >= 0; j--) {
+          const p = contentMatches[j][1]?.trim();
+          if (isValidCandidatePath(p)) return p;
+        }
+      }
+    }
+  }
+
+  return null;
+}
+
+function isValidCandidatePath(p) {
+  if (!p || typeof p !== 'string') return false;
+  p = p.trim();
+  if (p.length < 3 || p.length > 250) return false;
+  if (p.startsWith('http://') || p.startsWith('https://')) return false;
+  if (p.includes('node_modules')) return false;
+  if (/\.[a-zA-Z0-9]{1,10}$/.test(p) || p.startsWith('/')) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Normalizes tool arguments across aliases and fills in missing paths or parameters
+ * required by agent environments like Cline.
+ */
+export function normalizeToolArgs(toolName, args = {}, tools = [], rawText = '', messages = []) {
+  if (!args || typeof args !== 'object' || Array.isArray(args)) {
+    args = {};
+  }
+
+  const normToolName = (toolName || '').toLowerCase().trim();
+
+  // 1. File modification / creation tools
+  if (['editor', 'write_to_file', 'new_file', 'create_file', 'edit_file', 'replace_in_file'].includes(normToolName)) {
+    // Normalise path
+    if (!args.path) {
+      args.path = args.file_path || args.filePath || args.target_file || args.targetFile || args.file || args.filename || args.name;
+    }
+    if (!args.path) {
+      const fallbackPath = findRecentFilePath(messages, rawText);
+      if (fallbackPath) {
+        console.warn(`[Parser] Auto-resolved missing path for ${toolName} to: ${fallbackPath}`);
+        args.path = fallbackPath;
+      }
+    }
+
+    // Normalise new_text / content
+    if (normToolName === 'editor') {
+      if (args.new_text === undefined) {
+        args.new_text = args.content !== undefined ? args.content :
+                        args.text !== undefined ? args.text :
+                        args.code !== undefined ? args.code :
+                        args.file_text !== undefined ? args.file_text :
+                        args.body !== undefined ? args.body :
+                        args.input !== undefined ? args.input :
+                        '';
+      }
+      delete args.content;
+      delete args.file;
+      delete args.filePath;
+    } else {
+      if (args.content === undefined) {
+        args.content = args.new_text !== undefined ? args.new_text :
+                       args.text !== undefined ? args.text :
+                       args.code !== undefined ? args.code :
+                       args.file_text !== undefined ? args.file_text :
+                       args.body !== undefined ? args.body :
+                       args.input !== undefined ? args.input :
+                       '';
+      }
+    }
+  }
+
+  // 2. File reading / inspection tools
+  if (normToolName === 'read_files') {
+    if (!args.files || !Array.isArray(args.files) || args.files.length === 0) {
+      let targetPath = args.path || args.file || args.filePath || args.target_file;
+      if (!targetPath) {
+        targetPath = findRecentFilePath(messages, rawText);
+      }
+      if (targetPath) {
+        console.warn(`[Parser] Auto-resolved target path for read_files to: ${targetPath}`);
+        args.files = [{ path: targetPath }];
+      } else {
+        args.files = [];
+      }
+    } else {
+      args.files = args.files.map(f => (typeof f === 'string' ? { path: f } : f));
+    }
+    delete args.path;
+    delete args.file;
+  } else if (normToolName === 'read_file') {
+    if (!args.path) {
+      args.path = args.file || args.filePath || args.target_file;
+    }
+    if (!args.path) {
+      const fallbackPath = findRecentFilePath(messages, rawText);
+      if (fallbackPath) {
+        console.warn(`[Parser] Auto-resolved target path for read_file to: ${fallbackPath}`);
+        args.path = fallbackPath;
+      }
+    }
+  }
+
+  // 3. Command execution tools
+  if (normToolName === 'run_commands') {
+    if (!args.commands) {
+      if (args.command) {
+        args.commands = Array.isArray(args.command) ? args.command : [args.command];
+        delete args.command;
+      } else if (args.cmd) {
+        args.commands = Array.isArray(args.cmd) ? args.cmd : [args.cmd];
+        delete args.cmd;
+      } else {
+        args.commands = [];
+      }
+    } else if (typeof args.commands === 'string') {
+      args.commands = [args.commands];
+    }
+  } else if (normToolName === 'execute_command') {
+    if (!args.command) {
+      if (Array.isArray(args.commands) && args.commands.length > 0) {
+        args.command = args.commands.join(' && ');
+      } else if (args.cmd) {
+        args.command = args.cmd;
+      }
+    }
+  }
+
+  // 4. Question tools
+  if (normToolName === 'ask_followup_question' || normToolName === 'ask_question') {
+    if (!args.question) {
+      args.question = args.prompt || args.message || args.text || 'Please confirm how you would like to proceed:';
+    }
+    if (!args.options || !Array.isArray(args.options) || args.options.length === 0) {
+      args.options = args.choices || [
+        'Proceed with recommended options',
+        'Let me specify custom requirements'
+      ];
+    }
+  }
+
+  return args;
+}
+
+function applyNormalizedToolCall(toolCall, tools, rawText, messages) {
+  if (!toolCall || !toolCall.function) return toolCall;
+  let args = {};
+  if (typeof toolCall.function.arguments === 'string') {
+    try {
+      args = JSON.parse(toolCall.function.arguments);
+    } catch (e) {
+      args = {};
+    }
+  } else if (typeof toolCall.function.arguments === 'object') {
+    args = toolCall.function.arguments || {};
+  }
+
+  const normArgs = normalizeToolArgs(toolCall.function.name, args, tools, rawText, messages);
+  toolCall.function.arguments = JSON.stringify(normArgs);
+  return toolCall;
+}
+
+/**
  * Handles all variations of <tool_call> tags emitted by GLM, Qwen, and custom agent prompts:
  * - <tool_call>tool_name\nkey: val\n...</tool_call>
  * - <tool_call>tool_name>\n</invoke>\npath\n...\nnew_text\n...
@@ -212,119 +436,126 @@ function saveParsedArg(args, key, rawVal) {
  * - <tool_call:tool_name>...</tool_call>
  * - <tool_call>\n<name>...</name><arguments>...</arguments>\n</tool_call>
  * - <tool_call>\n{"name": "...", "arguments": {...}}\n</tool_call>
+ * - Bare trailing <tool_call>tool_name
  */
 function parseToolCallTag(text, toolList = []) {
-  const tagRegex = /<(?:tool_call|tool-call)(?::([a-zA-Z0-9_\-\.]+)|(?:\s+name=["']([^"']+)["']))?>([\s\S]*?)(?:<\/(?:tool_call|tool-call)>|$)/i;
-  const match = text.match(tagRegex);
-  if (!match) return null;
-
-  let toolName = (match[1] || match[2] || '').replace(/>+$/, '').trim();
-  let body = match[3].trim();
-
-  // Strip fake tool results if unclosed
-  const fakeResultIdx = body.search(/\[(?:Tool Result|System|User|Assistant)/i);
-  if (fakeResultIdx !== -1) {
-    body = body.slice(0, fakeResultIdx).trim();
-  }
-
-  // 1. Check if body has <name>...</name>
-  const nameTagMatch = body.match(/<name>([^<]+)<\/name>/i);
-  if (nameTagMatch) {
-    toolName = nameTagMatch[1].trim();
-    const argsTagMatch = body.match(/<arguments>([\s\S]*?)<\/arguments>/i);
-    if (argsTagMatch) {
-      body = argsTagMatch[1].trim();
-    }
-  }
-
-  // 2. Check if body has name: tool_name or tool: tool_name
-  if (!toolName) {
-    const nameLineMatch = body.match(/^(?:name|tool|tool_name|action):\s*([a-zA-Z0-9_\-\.]+)\s*(?:\n|$)([\s\S]*)$/i);
-    if (nameLineMatch) {
-      toolName = nameLineMatch[1].trim();
-      body = nameLineMatch[2].trim();
-    }
-  }
-
-  // 3. Check if first line is simply the tool name: e.g. <tool_call>ask_question\n or <tool_call>editor>\n
-  if (!toolName) {
-    const firstLineMatch = body.match(/^<?([a-zA-Z0-9_\-\.]+)>?(?:\s*\n|\s*$)([\s\S]*)$/);
-    if (firstLineMatch) {
-      toolName = firstLineMatch[1].trim();
-      body = firstLineMatch[2].trim();
-    }
-  }
-
-  // 4. Check if body is a JSON object with name property
-  if (!toolName) {
-    try {
-      const parsedJson = JSON.parse(body);
-      if (parsedJson.name || parsedJson.tool || parsedJson.action) {
-        toolName = parsedJson.name || parsedJson.tool || parsedJson.action;
-        body = JSON.stringify(parsedJson.arguments || parsedJson.parameters || parsedJson);
-      }
-    } catch (e) {}
-  }
-
-  if (!toolName) return null;
+  const tagRegex = /<(?:tool_call|tool-call)(?::([a-zA-Z0-9_\-\.]+)|(?:\s+name=["']([^"']+)["']))?>([\s\S]*?)(?:<\/(?:tool_call|tool-call)>|(?=<(?:tool_call|tool-call))|$)/gi;
+  const matches = [...text.matchAll(tagRegex)];
+  if (matches.length === 0) return null;
 
   // Extract known parameters from tools list if available
-  const knownParams = [
+  const defaultKnownParams = [
     'path', 'new_text', 'content', 'command', 'commands',
     'question', 'options', 'file', 'files', 'diff', 'old_text',
     'url', 'query', 'action', 'message', 'text', 'code', 'line'
   ];
+  const knownParams = [...defaultKnownParams];
   for (const t of toolList) {
     const fn = t.function || t;
-    if (fn.name === toolName && fn.parameters?.properties) {
+    if (fn.name && fn.parameters?.properties) {
       knownParams.push(...Object.keys(fn.parameters.properties));
     }
   }
   const validParamNames = new Set(knownParams.map(p => p.toLowerCase()));
 
-  // Now parse arguments from body
-  let args = {};
+  // Search matches from newest/last backwards
+  for (let m = matches.length - 1; m >= 0; m--) {
+    const match = matches[m];
+    let toolName = (match[1] || match[2] || '').replace(/>+$/, '').trim();
+    let body = match[3].trim();
 
-  // A. Check if body contains XML child tags: e.g. <path>...</path>
-  // Ensure we do NOT accidentally treat arbitrary HTML tags like <head>, <body>, <div> as tool arguments!
-  const childTagRegex = /<([a-zA-Z0-9_\-]+)>([\s\S]*?)<\/\1>/gi;
-  let cMatch;
-  let xmlCount = 0;
-  while ((cMatch = childTagRegex.exec(body)) !== null) {
-    const tag = cMatch[1].toLowerCase();
-    if (validParamNames.has(tag)) {
-      xmlCount++;
-      args[cMatch[1]] = cMatch[2].trim();
+    // Strip fake tool results if unclosed
+    const fakeResultIdx = body.search(/\[(?:Tool Result|System|User|Assistant)/i);
+    if (fakeResultIdx !== -1) {
+      body = body.slice(0, fakeResultIdx).trim();
     }
-  }
 
-  // B. Check if body is JSON
-  if (xmlCount === 0) {
-    const trimmedBody = body.trim();
-    if ((trimmedBody.startsWith('{') && trimmedBody.endsWith('}')) || (trimmedBody.startsWith('[') && trimmedBody.endsWith(']'))) {
+    // 1. Check if body has <name>...</name>
+    const nameTagMatch = body.match(/<name>([^<]+)<\/name>/i);
+    if (nameTagMatch) {
+      toolName = nameTagMatch[1].trim();
+      const argsTagMatch = body.match(/<arguments>([\s\S]*?)<\/arguments>/i);
+      if (argsTagMatch) {
+        body = argsTagMatch[1].trim();
+      }
+    }
+
+    // 2. Check if body has name: tool_name or tool: tool_name
+    if (!toolName) {
+      const nameLineMatch = body.match(/^(?:name|tool|tool_name|action):\s*([a-zA-Z0-9_\-\.]+)\s*(?:\n|$)([\s\S]*)$/i);
+      if (nameLineMatch) {
+        toolName = nameLineMatch[1].trim();
+        body = nameLineMatch[2].trim();
+      }
+    }
+
+    // 3. Check if first line is simply the tool name: e.g. <tool_call>ask_question\n or <tool_call>editor>\n or bare <tool_call>read_files
+    if (!toolName) {
+      const firstLineMatch = body.match(/^<?([a-zA-Z0-9_\-\.]+)>?(?:\s*\n|\s*$)([\s\S]*)$/);
+      if (firstLineMatch) {
+        toolName = firstLineMatch[1].trim();
+        body = firstLineMatch[2].trim();
+      }
+    }
+
+    // 4. Check if body is a JSON object with name property
+    if (!toolName) {
       try {
-        const parsed = JSON.parse(trimmedBody);
-        args = parsed.arguments || parsed.parameters || parsed;
+        const parsedJson = JSON.parse(body);
+        if (parsedJson.name || parsedJson.tool || parsedJson.action) {
+          toolName = parsedJson.name || parsedJson.tool || parsedJson.action;
+          body = JSON.stringify(parsedJson.arguments || parsedJson.parameters || parsedJson);
+        }
       } catch (e) {}
     }
-  }
 
-  // C. If args still empty, parse Key-Value / Bare Params / YAML
-  if (Object.keys(args).length === 0 && body.length > 0) {
-    args = parseKvOrYaml(body, knownParams);
-  }
+    if (!toolName) continue;
 
-  return {
-    toolCall: {
-      id: `call_${crypto.randomBytes(8).toString('hex')}`,
-      type: 'function',
-      function: {
-        name: toolName,
-        arguments: JSON.stringify(args),
+    // Now parse arguments from body
+    let args = {};
+
+    // A. Check if body contains XML child tags: e.g. <path>...</path>
+    const childTagRegex = /<([a-zA-Z0-9_\-]+)>([\s\S]*?)<\/\1>/gi;
+    let cMatch;
+    let xmlCount = 0;
+    while ((cMatch = childTagRegex.exec(body)) !== null) {
+      const tag = cMatch[1].toLowerCase();
+      if (validParamNames.has(tag)) {
+        xmlCount++;
+        args[cMatch[1]] = cMatch[2].trim();
+      }
+    }
+
+    // B. Check if body is JSON
+    if (xmlCount === 0) {
+      const trimmedBody = body.trim();
+      if ((trimmedBody.startsWith('{') && trimmedBody.endsWith('}')) || (trimmedBody.startsWith('[') && trimmedBody.endsWith(']'))) {
+        try {
+          const parsed = JSON.parse(trimmedBody);
+          args = parsed.arguments || parsed.parameters || parsed;
+        } catch (e) {}
+      }
+    }
+
+    // C. If args still empty, parse Key-Value / Bare Params / YAML
+    if (Object.keys(args).length === 0 && body.length > 0) {
+      args = parseKvOrYaml(body, knownParams);
+    }
+
+    return {
+      toolCall: {
+        id: `call_${crypto.randomBytes(8).toString('hex')}`,
+        type: 'function',
+        function: {
+          name: toolName,
+          arguments: JSON.stringify(args),
+        },
       },
-    },
-    index: match.index,
-  };
+      index: match.index,
+    };
+  }
+
+  return null;
 }
 
 /**
@@ -388,12 +619,23 @@ function parseXmlToolCall(text, toolList = []) {
       const childRegex = /<([a-zA-Z0-9_\-]+)>([\s\S]*?)<\/\1>/gi;
       let cMatch;
       let count = 0;
+      const validParamNames = new Set([
+        'path', 'new_text', 'content', 'command', 'commands',
+        'question', 'options', 'file', 'files', 'diff', 'old_text',
+        'url', 'query', 'action', 'message', 'text', 'code', 'line'
+      ]);
       while ((cMatch = childRegex.exec(body)) !== null) {
-        count++;
-        args[cMatch[1]] = cMatch[2].trim();
+        if (validParamNames.has(cMatch[1].toLowerCase())) {
+          count++;
+          args[cMatch[1]] = cMatch[2].trim();
+        }
       }
       if (count === 0) {
-        args.content = body.trim();
+        if (toolName.toLowerCase() === 'editor') {
+          args.new_text = body.trim();
+        } else {
+          args.content = body.trim();
+        }
       }
       return {
         toolCall: {
@@ -413,20 +655,26 @@ function parseXmlToolCall(text, toolList = []) {
  * Checks if the generated response text contains a tool call (JSON or XML) or standard text.
  * Truncates any hallucinated tool results or conversational loops following the tool call.
  */
-export function parseResponse(rawText, tools = []) {
+export function parseResponse(rawText, tools = [], messages = []) {
   if (!rawText || typeof rawText !== 'string') {
     return { isToolCall: false, content: rawText || '' };
   }
 
   const trimmed = rawText.trim();
 
+  // Helper to clean preText of dangling unclosed tool tags
+  const cleanPreText = (text) => {
+    return text.replace(/<(?:tool_call|tool-call)[^>]*>[\s\S]*$/i, '').trim();
+  };
+
   // 1. Check XML format first
   const xmlResult = parseXmlToolCall(trimmed, tools);
   if (xmlResult) {
-    const preText = trimmed.slice(0, xmlResult.index).trim();
+    const preText = cleanPreText(trimmed.slice(0, xmlResult.index));
+    const normalizedToolCall = applyNormalizedToolCall(xmlResult.toolCall, tools, trimmed, messages);
     return {
       isToolCall: true,
-      toolCalls: [xmlResult.toolCall],
+      toolCalls: [normalizedToolCall],
       content: preText || null,
     };
   }
@@ -438,10 +686,11 @@ export function parseResponse(rawText, tools = []) {
     const candidate = match[1].trim();
     const toolCall = tryParseJsonToolCall(candidate);
     if (toolCall) {
-      const preText = trimmed.slice(0, match.index).trim();
+      const preText = cleanPreText(trimmed.slice(0, match.index));
+      const normalizedToolCall = applyNormalizedToolCall(toolCall, tools, trimmed, messages);
       return {
         isToolCall: true,
-        toolCalls: [toolCall],
+        toolCalls: [normalizedToolCall],
         content: preText || null,
       };
     }
@@ -454,10 +703,11 @@ export function parseResponse(rawText, tools = []) {
     const candidate = trimmed.slice(firstBrace, lastBrace + 1).trim();
     const toolCall = tryParseJsonToolCall(candidate);
     if (toolCall) {
-      const preText = trimmed.slice(0, firstBrace).trim();
+      const preText = cleanPreText(trimmed.slice(0, firstBrace));
+      const normalizedToolCall = applyNormalizedToolCall(toolCall, tools, trimmed, messages);
       return {
         isToolCall: true,
-        toolCalls: [toolCall],
+        toolCalls: [normalizedToolCall],
         content: preText || null,
       };
     }

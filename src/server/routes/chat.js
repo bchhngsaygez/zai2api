@@ -127,7 +127,7 @@ chatRouter.post(['/v1/chat/completions', '/chat/completions'], async (req, res) 
               if (hasTools) {
                 console.log('[API] Stream finalized text length:', finalText?.length, 'sample:', JSON.stringify(finalText?.slice(0, 200)));
                 // If tools were provided, inspect if the finalized text contains a tool call
-                const parsed = parseResponse(finalText, tools);
+                const parsed = parseResponse(finalText, tools, messages);
                 if (parsed.isToolCall && !res.writableEnded) {
                   console.log(`[API] Stream detected tool call: ${parsed.toolCalls[0].function.name}`);
 
@@ -288,7 +288,7 @@ chatRouter.post(['/v1/chat/completions', '/chat/completions'], async (req, res) 
         return { answer: finalAnswer, usage: finalUsage };
       }, { type: 'chat_non_stream', model });
 
-      const parsed = parseResponse(result.answer, tools);
+      const parsed = parseResponse(result.answer, tools, messages);
       const message = {
         role: 'assistant',
         content: parsed.content || null,

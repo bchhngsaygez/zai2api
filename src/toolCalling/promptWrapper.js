@@ -45,7 +45,9 @@ CRITICAL INVOCATION RULES:
 2. TAKE ACTION IMMEDIATELY: When the user asks you to build, create, or modify code, start coding immediately. Make sensible defaults (e.g. create a dedicated project folder in the workspace) and output the file/command tool call NOW.
 3. NEVER STALL OR OUTLINE UNEXECUTED PLANS: NEVER say "I will build...", "Quick plan before I start...", or "One decision needed from you:" without outputting the corresponding tool call in the EXACT SAME message. If you state a plan, you MUST execute step 1 immediately in this turn.
 4. NEVER ASK QUESTIONS IN PLAIN TEXT: If you genuinely need user confirmation, clarification, or a decision, you MUST invoke the question tool (e.g. ask_followup_question or ask_question) as a tool call with the question and selectable options. DO NOT write questions in plain conversational text.
-5. STOP GENERATION: Stop immediately after the closing \`\`\` of the JSON tool block. NEVER fabricate simulated tool outputs.`;
+5. STOP GENERATION: Stop immediately after the closing \`\`\` of the JSON tool block. NEVER fabricate simulated tool outputs.
+6. COMPLETE FILES IN ONE CALL: When creating a new file or writing code, ALWAYS write the COMPLETE, fully functional file in ONE single tool call from start to end. NEVER split a file into multiple chunks (e.g. NEVER do "Part 1 now, Part 2 later", NEVER leave placeholders like "// TODO" or "// ===PART2===").
+7. FILE EDITING RULES: For creating a new file with the "editor" tool, provide "path" and "new_text" (do NOT provide "old_text"). For modifying an EXISTING file with "editor", you MUST supply BOTH "old_text" (the exact lines to replace) and "new_text" (the replacement).`;
   }
 
   // 2. Process conversation messages
@@ -106,7 +108,7 @@ CRITICAL INVOCATION RULES:
   }
 
   if (hasTools) {
-    sections.push('[FINAL DIRECTIVE: If an action, file operation, command, or question is needed, output the tool call NOW and STOP. NEVER output a plan or ask a question without emitting the tool call.]');
+    sections.push('[FINAL DIRECTIVE: If an action, file operation, command, or question is needed, output the tool call NOW and STOP. When creating files, write the complete file in one single pass. NEVER output a plan or ask a question without emitting the tool call.]');
   }
 
   prompt = sections.join('\n\n---\n\n');
