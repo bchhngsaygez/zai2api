@@ -29,28 +29,23 @@ ${JSON.stringify(formattedTools)}
 
 [CRITICAL DIRECTIVE: TOOL EXECUTION RULES]
 You are operating inside an autonomous developer agent (Cline/Cursor).
-To perform any action, file operation, command, or ask the user a question, you MUST output a tool call and STOP immediately. Formats accepted:
+To perform any file operation, edit, command, or ask the user a question, you MUST output a tool call using the standard JSON format and STOP immediately:
 
-Option 1 (JSON Block):
 \`\`\`json
-{"name": "tool_name", "arguments": {"param1": "value1"}}
+{
+  "name": "tool_name",
+  "arguments": {
+    "param1": "value1"
+  }
+}
 \`\`\`
 
-Option 2 (XML Tag):
-<invoke name="tool_name">
-<parameter name="param1">value1</parameter>
-</invoke>
-
-Option 3 (Tool Tag):
-<tool_call>tool_name
-param1: value1
-</tool_call>
-
-STRICT AGENT RULES:
-1. TAKE ACTION IMMEDIATELY: When the user asks you to build, create, or modify code, start coding immediately. Make sensible defaults (e.g. create a dedicated project folder in the workspace) and output the file/command tool call NOW.
-2. NEVER STALL OR OUTLINE UNEXECUTED PLANS: NEVER say "I will build...", "Quick plan before I start...", or "One decision needed from you:" without outputting the corresponding tool call in the EXACT SAME message. If you state a plan, you MUST execute step 1 immediately in this turn.
-3. NEVER ASK QUESTIONS IN PLAIN TEXT: If you genuinely need user confirmation, clarification, or a decision, you MUST invoke the question tool (e.g. ask_followup_question or ask_question) as a tool call with the question and selectable options. DO NOT write questions in plain conversational text.
-4. STOP GENERATION: Stop immediately after the closing tag of the tool block (\`\`\`, </invoke>, or </tool_call>). NEVER fabricate simulated tool outputs.`;
+CRITICAL INVOCATION RULES:
+1. ALWAYS use the standard \`\`\`json format shown above. DO NOT invent hybrid XML tags like <tool_call> or mix <invoke>.
+2. TAKE ACTION IMMEDIATELY: When the user asks you to build, create, or modify code, start coding immediately. Make sensible defaults (e.g. create a dedicated project folder in the workspace) and output the file/command tool call NOW.
+3. NEVER STALL OR OUTLINE UNEXECUTED PLANS: NEVER say "I will build...", "Quick plan before I start...", or "One decision needed from you:" without outputting the corresponding tool call in the EXACT SAME message. If you state a plan, you MUST execute step 1 immediately in this turn.
+4. NEVER ASK QUESTIONS IN PLAIN TEXT: If you genuinely need user confirmation, clarification, or a decision, you MUST invoke the question tool (e.g. ask_followup_question or ask_question) as a tool call with the question and selectable options. DO NOT write questions in plain conversational text.
+5. STOP GENERATION: Stop immediately after the closing \`\`\` of the JSON tool block. NEVER fabricate simulated tool outputs.`;
   }
 
   // 2. Process conversation messages

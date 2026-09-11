@@ -134,25 +134,49 @@ function tryParseJsonToolCall(jsonStr) {
 }
 
 /**
- * Parses key-value / YAML lines within tool blocks (e.g. question: ... \n options: [...])
+ * Parses key-value / YAML lines and bare parameter blocks within tool calls:
+ * Supports:
+ * - key: val
+ * - bare parameter names followed by multiline value on subsequent lines (e.g. path\n/home/...\nnew_text\n<!DOCTYPE html>...)
  */
-function parseKvOrYaml(bodyText) {
+function parseKvOrYaml(bodyText, knownParams = []) {
   const args = {};
-  const lines = bodyText.split('\n');
+  // Strip stray opening/closing tags from bodyText (e.g. </invoke>, <invoke>, </tool_call>)
+  const cleaned = bodyText.replace(/^\s*<\/(?:invoke|tool_call|tool-call|parameter)>\s*/gi, '').trim();
+  const lines = cleaned.split('\n');
   let currentKey = null;
   let currentValue = '';
 
+  const defaultKnownParams = [
+    'path', 'new_text', 'content', 'command', 'commands',
+    'question', 'options', 'file', 'files', 'diff', 'old_text',
+    'url', 'query', 'action', 'message', 'text', 'code', 'line'
+  ];
+  const allKnownParams = [...new Set([...knownParams, ...defaultKnownParams])];
+
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
+    const trimmedLine = line.trim();
+
+    // Pattern 1: standard key: value
     const kvMatch = line.match(/^([a-zA-Z0-9_\-]+):\s*(.*)$/);
-    if (kvMatch) {
+    // Pattern 2: bare parameter name on its own line (e.g. "path" or "new_text")
+    const isBareParam = allKnownParams.includes(trimmedLine.toLowerCase());
+
+    if (kvMatch && !trimmedLine.startsWith('<')) {
       if (currentKey) {
         saveParsedArg(args, currentKey, currentValue);
       }
       currentKey = kvMatch[1].trim();
       currentValue = kvMatch[2];
+    } else if (isBareParam) {
+      if (currentKey) {
+        saveParsedArg(args, currentKey, currentValue);
+      }
+      currentKey = trimmedLine.toLowerCase();
+      currentValue = '';
     } else if (currentKey) {
-      currentValue += '\n' + line;
+      currentValue = currentValue ? (currentValue + '\n' + line) : line;
     }
   }
 
@@ -183,17 +207,18 @@ function saveParsedArg(args, key, rawVal) {
 /**
  * Handles all variations of <tool_call> tags emitted by GLM, Qwen, and custom agent prompts:
  * - <tool_call>tool_name\nkey: val\n...</tool_call>
+ * - <tool_call>tool_name>\n</invoke>\npath\n...\nnew_text\n...
  * - <tool_call name="tool_name">...</tool_call>
  * - <tool_call:tool_name>...</tool_call>
  * - <tool_call>\n<name>...</name><arguments>...</arguments>\n</tool_call>
  * - <tool_call>\n{"name": "...", "arguments": {...}}\n</tool_call>
  */
-function parseToolCallTag(text) {
+function parseToolCallTag(text, toolList = []) {
   const tagRegex = /<(?:tool_call|tool-call)(?::([a-zA-Z0-9_\-\.]+)|(?:\s+name=["']([^"']+)["']))?>([\s\S]*?)(?:<\/(?:tool_call|tool-call)>|$)/i;
   const match = text.match(tagRegex);
   if (!match) return null;
 
-  let toolName = match[1] || match[2] || '';
+  let toolName = (match[1] || match[2] || '').replace(/>+$/, '').trim();
   let body = match[3].trim();
 
   // Strip fake tool results if unclosed
@@ -221,9 +246,9 @@ function parseToolCallTag(text) {
     }
   }
 
-  // 3. Check if first line is simply the tool name: e.g. <tool_call>ask_question\n
+  // 3. Check if first line is simply the tool name: e.g. <tool_call>ask_question\n or <tool_call>editor>\n
   if (!toolName) {
-    const firstLineMatch = body.match(/^([a-zA-Z0-9_\-\.]+)(?:\s*\n|\s*$)([\s\S]*)$/);
+    const firstLineMatch = body.match(/^<?([a-zA-Z0-9_\-\.]+)>?(?:\s*\n|\s*$)([\s\S]*)$/);
     if (firstLineMatch) {
       toolName = firstLineMatch[1].trim();
       body = firstLineMatch[2].trim();
@@ -243,16 +268,34 @@ function parseToolCallTag(text) {
 
   if (!toolName) return null;
 
+  // Extract known parameters from tools list if available
+  const knownParams = [
+    'path', 'new_text', 'content', 'command', 'commands',
+    'question', 'options', 'file', 'files', 'diff', 'old_text',
+    'url', 'query', 'action', 'message', 'text', 'code', 'line'
+  ];
+  for (const t of toolList) {
+    const fn = t.function || t;
+    if (fn.name === toolName && fn.parameters?.properties) {
+      knownParams.push(...Object.keys(fn.parameters.properties));
+    }
+  }
+  const validParamNames = new Set(knownParams.map(p => p.toLowerCase()));
+
   // Now parse arguments from body
   let args = {};
 
-  // A. Check if body contains XML child tags: e.g. <question>...</question>
+  // A. Check if body contains XML child tags: e.g. <path>...</path>
+  // Ensure we do NOT accidentally treat arbitrary HTML tags like <head>, <body>, <div> as tool arguments!
   const childTagRegex = /<([a-zA-Z0-9_\-]+)>([\s\S]*?)<\/\1>/gi;
   let cMatch;
   let xmlCount = 0;
   while ((cMatch = childTagRegex.exec(body)) !== null) {
-    xmlCount++;
-    args[cMatch[1]] = cMatch[2].trim();
+    const tag = cMatch[1].toLowerCase();
+    if (validParamNames.has(tag)) {
+      xmlCount++;
+      args[cMatch[1]] = cMatch[2].trim();
+    }
   }
 
   // B. Check if body is JSON
@@ -266,9 +309,9 @@ function parseToolCallTag(text) {
     }
   }
 
-  // C. If args still empty, parse Key-Value / YAML
+  // C. If args still empty, parse Key-Value / Bare Params / YAML
   if (Object.keys(args).length === 0 && body.length > 0) {
-    args = parseKvOrYaml(body);
+    args = parseKvOrYaml(body, knownParams);
   }
 
   return {
@@ -320,8 +363,8 @@ function parseXmlToolCall(text, toolList = []) {
     };
   }
 
-  // 2. Match <tool_call> ... (supports JSON, XML, or Key-Value / YAML parameters)
-  const toolCallResult = parseToolCallTag(text);
+  // 2. Match <tool_call> ... (supports JSON, XML, or Key-Value / Bare Params / YAML)
+  const toolCallResult = parseToolCallTag(text, toolList);
   if (toolCallResult) {
     return toolCallResult;
   }
