@@ -5,6 +5,7 @@ import { browserController } from '../../browser/browserController.js';
 import { requestQueue } from '../../queue/fifoQueue.js';
 import { buildPromptWithTools } from '../../toolCalling/promptWrapper.js';
 import { parseResponse } from '../../toolCalling/responseParser.js';
+import { statsTracker } from '../statsTracker.js';
 
 export const chatRouter = express.Router();
 
@@ -224,6 +225,15 @@ chatRouter.post(['/v1/chat/completions', '/chat/completions'], async (req, res) 
                 res.write(`data: ${JSON.stringify(finishChunk)}\n\n`);
               }
 
+              // Record usage stats and cost savings
+              try {
+                statsTracker.recordRequest({
+                  promptText: wrappedPrompt,
+                  completionText: finalText,
+                  usage: streamUsage,
+                });
+              } catch (sErr) {}
+
               if (!res.writableEnded) {
                 res.write('data: [DONE]\n\n');
                 res.end();
@@ -309,6 +319,15 @@ chatRouter.post(['/v1/chat/completions', '/chat/completions'], async (req, res) 
           total_tokens: Math.round((wrappedPrompt.length + (result.answer || '').length) / 4),
         },
       };
+
+      // Record usage stats and cost savings
+      try {
+        statsTracker.recordRequest({
+          promptText: wrappedPrompt,
+          completionText: result.answer,
+          usage: responsePayload.usage,
+        });
+      } catch (sErr) {}
 
       res.json(responsePayload);
     } catch (err) {

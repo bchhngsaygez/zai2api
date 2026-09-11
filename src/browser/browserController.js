@@ -307,7 +307,12 @@ export class BrowserController extends EventEmitter {
         '系统繁忙',
         'too many requests',
         'service unavailable',
-        'service is busy'
+        'service is busy',
+        'usage limit',
+        'quota exceeded',
+        'rate limit',
+        '请求过于频繁',
+        '429'
       ];
       const text = document.body ? document.body.innerText.toLowerCase() : '';
       for (const kw of errorKeywords) {
@@ -461,7 +466,6 @@ export class BrowserController extends EventEmitter {
           return this.sendMessage({
             prompt,
             model: config.fallbackModel,
-            images: allImages,
             onDelta,
             onReasoning,
             onUsage,
@@ -480,6 +484,37 @@ export class BrowserController extends EventEmitter {
         console.warn(`[Browser] DOM error banner detected: "${domError}"`);
         cleanup();
 
+        // Check if error is related to quota or rate limits
+        const isRateLimit = ['usage limit', 'quota', 'rate limit', 'too many requests', '429', '频繁'].some(kw => domError.includes(kw));
+        if (isRateLimit) {
+          console.warn(`[Browser] Account rate limit / quota issue detected: "${domError}". Checking for token rotation...`);
+          try {
+            const { tokensManager } = await import('../server/tokensManager.js');
+            const activeObj = tokensManager.getActiveTokenObject();
+            if (activeObj) tokensManager.markTokenRateLimited(activeObj.id);
+
+            const rotation = await tokensManager.rotateToNextToken('dom_rate_limit');
+            if (rotation.rotated) {
+              console.log(`[Browser] Auto-rotated to token "${rotation.token.label}". Retrying request...`);
+              if (onReasoning) {
+                onReasoning(`\n[System Notice: Rate limit reached on previous token. Auto-rotated to "${rotation.token.label}". Retrying request...]\n\n`);
+              }
+              return this.sendMessage({
+                prompt,
+                model,
+                thinkingMode,
+                onDelta,
+                onReasoning,
+                onUsage,
+                onDone,
+                onError,
+              });
+            }
+          } catch (rotErr) {
+            console.error('[Browser] Token rotation error:', rotErr.message);
+          }
+        }
+
         if (model !== config.fallbackModel) {
           if (onReasoning) {
             onReasoning(`\n[System Notice: Peak-hour server error ("${domError}"). Auto-routing to ${config.fallbackModel}...]\n\n`);
@@ -488,7 +523,6 @@ export class BrowserController extends EventEmitter {
           return this.sendMessage({
             prompt,
             model: config.fallbackModel,
-            images: allImages,
             onDelta,
             onReasoning,
             onUsage,
@@ -571,8 +605,38 @@ export class BrowserController extends EventEmitter {
           console.error('[Browser] Error processing stream chunk:', err);
         }
       },
-      handleError: (err) => {
+      handleError: async (err) => {
         console.error('[Browser] Stream reported error:', err);
+        const errStr = String(err).toLowerCase();
+        if (errStr.includes('rate_limit') || errStr.includes('429') || errStr.includes('402')) {
+          console.warn('[Browser] Stream error indicates rate limit! Checking for token rotation...');
+          try {
+            const { tokensManager } = await import('../server/tokensManager.js');
+            const activeObj = tokensManager.getActiveTokenObject();
+            if (activeObj) tokensManager.markTokenRateLimited(activeObj.id);
+
+            const rotation = await tokensManager.rotateToNextToken('stream_rate_limit');
+            if (rotation && rotation.rotated) {
+              console.log(`[Browser] Rotated to token "${rotation.token.label}". Retrying request...`);
+              cleanup();
+              if (onReasoning) {
+                onReasoning(`\n[System Notice: Rate limit reached. Auto-rotated to "${rotation.token.label}". Retrying request...]\n\n`);
+              }
+              return this.sendMessage({
+                prompt,
+                model,
+                thinkingMode,
+                onDelta,
+                onReasoning,
+                onUsage,
+                onDone,
+                onError,
+              });
+            }
+          } catch (rotErr) {
+            console.error('[Browser] Token rotation on stream error failed:', rotErr.message);
+          }
+        }
         fail(new Error(err));
       },
     };

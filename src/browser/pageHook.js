@@ -21,6 +21,11 @@ export function getInjectedScript(token = '') {
         const url = (args[0] && typeof args[0] === 'string') ? args[0] : (args[0]?.url || '');
 
         if (url.includes('/api/v2/chat/completions') || url.includes('/chat/completions')) {
+          if (response.status === 429 || response.status === 402) {
+            const errCode = 'RATE_LIMIT_HTTP_' + response.status;
+            console.error('[ZAI_ERROR]:' + errCode);
+            if (window.__onZaiStreamError) window.__onZaiStreamError(errCode);
+          }
           try {
             const clone = response.clone();
             const reader = clone.body.getReader();

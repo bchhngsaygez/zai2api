@@ -1,10 +1,11 @@
 node_modules
 user-data
 user-data-camoufox
-tokens.json
 .git
 .github
 .env
+tokens.json
+stats.json
 *.log
 npm-debug.log*
 .DS_Store

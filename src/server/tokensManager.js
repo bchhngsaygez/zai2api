@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { config } from '../config.js';
 import { browserController } from '../browser/browserController.js';
+import { statsTracker } from './statsTracker.js';
 
 const TOKENS_FILE = path.resolve(config.projectRoot, 'tokens.json');
 const ENV_FILE = path.resolve(config.projectRoot, '.env');
@@ -9,6 +10,7 @@ const ENV_FILE = path.resolve(config.projectRoot, '.env');
 class TokensManager {
   constructor() {
     this.tokens = [];
+    this.autoRotationEnabled = true;
     this.init();
   }
 
@@ -76,19 +78,100 @@ class TokensManager {
   }
 
   getTokens() {
-    return this.tokens.map(t => ({
-      id: t.id,
-      label: t.label,
-      maskedToken: this.maskToken(t.token),
-      tokenLength: t.token.length,
-      active: !!t.active,
-      createdAt: t.createdAt,
-    }));
+    const now = Date.now();
+    return this.tokens.map(t => {
+      const isRateLimited = Boolean(t.rateLimitedUntil && t.rateLimitedUntil > now);
+      const cooldownRemainingSec = isRateLimited ? Math.ceil((t.rateLimitedUntil - now) / 1000) : 0;
+      return {
+        id: t.id,
+        label: t.label,
+        maskedToken: this.maskToken(t.token),
+        tokenLength: t.token.length,
+        active: !!t.active,
+        isRateLimited,
+        cooldownRemainingSec,
+        rateLimitedUntil: t.rateLimitedUntil || null,
+        createdAt: t.createdAt,
+      };
+    });
   }
 
   getActiveToken() {
     const active = this.tokens.find(t => t.active);
     return active ? active.token : null;
+  }
+
+  getActiveTokenObject() {
+    return this.tokens.find(t => t.active) || null;
+  }
+
+  markTokenRateLimited(tokenOrId, cooldownMs = 15 * 60 * 1000) {
+    const target = this.tokens.find(t => t.id === tokenOrId || t.token === tokenOrId);
+    if (!target) return null;
+
+    target.rateLimitedUntil = Date.now() + cooldownMs;
+    console.warn(`[TokensManager] Marked token "${target.label}" (${this.maskToken(target.token)}) as rate-limited for ${Math.round(cooldownMs / 60000)}m.`);
+    this.saveToFile();
+    return target;
+  }
+
+  clearRateLimits() {
+    this.tokens.forEach(t => { delete t.rateLimitedUntil; });
+    this.saveToFile();
+  }
+
+  async rotateToNextToken(reason = 'rate_limit') {
+    if (this.tokens.length <= 1) {
+      console.warn('[TokensManager] Cannot rotate token: 1 or fewer tokens configured.');
+      return { rotated: false, reason: 'Only 1 token available' };
+    }
+
+    const now = Date.now();
+    const currentIndex = this.tokens.findIndex(t => t.active);
+    let nextIndex = -1;
+
+    // First, search cyclically for a token that is NOT currently in cooldown
+    for (let i = 1; i < this.tokens.length; i++) {
+      const idx = (currentIndex + i) % this.tokens.length;
+      const t = this.tokens[idx];
+      if (!t.rateLimitedUntil || t.rateLimitedUntil <= now) {
+        nextIndex = idx;
+        break;
+      }
+    }
+
+    // If all tokens are rate-limited, pick the one with the soonest expiring cooldown
+    if (nextIndex === -1) {
+      console.warn('[TokensManager] All tokens are currently rate-limited. Falling back to the earliest expiring token.');
+      let earliestTime = Infinity;
+      this.tokens.forEach((t, idx) => {
+        if (idx !== currentIndex && t.rateLimitedUntil && t.rateLimitedUntil < earliestTime) {
+          earliestTime = t.rateLimitedUntil;
+          nextIndex = idx;
+        }
+      });
+      if (nextIndex === -1) nextIndex = (currentIndex + 1) % this.tokens.length;
+    }
+
+    const nextToken = this.tokens[nextIndex];
+    console.log(`[TokensManager] Auto-rotating active token from index ${currentIndex} to "${nextToken.label}" (Reason: ${reason})...`);
+
+    // Switch active state
+    this.tokens.forEach((t, idx) => { t.active = (idx === nextIndex); });
+    this.saveToFile();
+    this.syncToEnv(nextToken.token);
+    await this.refreshBrowserSession();
+
+    statsTracker.recordRotation();
+
+    return {
+      rotated: true,
+      token: {
+        id: nextToken.id,
+        label: nextToken.label,
+        maskedToken: this.maskToken(nextToken.token),
+      },
+    };
   }
 
   async addToken({ label, token, setActive = false }) {

@@ -3,104 +3,13 @@
 
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
-  initSidebar();
   initTabs();
+  initStats();
   initTokens();
   initChat();
   initTesting();
   initLogs();
 });
-
-/* =====================================================
-   0. Sidebar Management (Desktop Collapse & Mobile Drawer)
-   ===================================================== */
-function initSidebar() {
-  const sidebar = document.getElementById('app-sidebar');
-  const collapseBtn = document.getElementById('sidebar-collapse-btn');
-  const mobileMenuBtn = document.getElementById('mobile-menu-btn');
-  const backdrop = document.getElementById('sidebar-backdrop');
-  const navBtns = document.querySelectorAll('.sidebar-nav .nav-btn');
-
-  if (!sidebar) return;
-
-  // Restore desktop collapsed state
-  const isCollapsed = localStorage.getItem('zai_sidebar_collapsed') === 'true';
-  if (isCollapsed && window.innerWidth > 768) {
-    sidebar.classList.add('collapsed');
-  }
-
-  // Desktop Collapse Button
-  if (collapseBtn) {
-    collapseBtn.addEventListener('click', () => {
-      sidebar.classList.toggle('collapsed');
-      const collapsedNow = sidebar.classList.contains('collapsed');
-      localStorage.setItem('zai_sidebar_collapsed', collapsedNow);
-    });
-  }
-
-  // Mobile Drawer Open & Close
-  function openMobileDrawer() {
-    sidebar.classList.add('mobile-open');
-    if (backdrop) backdrop.classList.add('active');
-    document.body.style.overflow = 'hidden';
-  }
-
-  function closeMobileDrawer() {
-    sidebar.classList.remove('mobile-open');
-    if (backdrop) backdrop.classList.remove('active');
-    document.body.style.overflow = '';
-  }
-
-  if (mobileMenuBtn) {
-    mobileMenuBtn.addEventListener('click', () => {
-      if (sidebar.classList.contains('mobile-open')) {
-        closeMobileDrawer();
-      } else {
-        openMobileDrawer();
-      }
-    });
-  }
-
-  if (backdrop) {
-    backdrop.addEventListener('click', closeMobileDrawer);
-  }
-
-  // Auto-close mobile drawer when switching tabs
-  navBtns.forEach(btn => {
-    btn.addEventListener('click', () => {
-      if (window.innerWidth <= 768) {
-        closeMobileDrawer();
-      }
-    });
-  });
-
-  // Keyboard Shortcuts (Alt+1 .. Alt+4)
-  window.addEventListener('keydown', (e) => {
-    if (e.altKey && !e.ctrlKey && !e.metaKey) {
-      const tabMap = {
-        '1': 'chat',
-        '2': 'testing',
-        '3': 'tokens',
-        '4': 'logs'
-      };
-      const tabName = tabMap[e.key];
-      if (tabName) {
-        e.preventDefault();
-        const targetBtn = document.querySelector(`.sidebar-nav .nav-btn[data-tab="${tabName}"]`);
-        if (targetBtn) {
-          targetBtn.click();
-        }
-      }
-    }
-  });
-
-  // Reset drawer state on screen resize
-  window.addEventListener('resize', () => {
-    if (window.innerWidth > 768 && sidebar.classList.contains('mobile-open')) {
-      closeMobileDrawer();
-    }
-  });
-}
 
 /* =====================================================
    0. Theme Management (Light & Dark Mode)
@@ -167,7 +76,89 @@ function initTabs() {
 }
 
 /* =====================================================
-   2. Token Management
+   2. Global Stats & Cost Savings
+   ===================================================== */
+let refreshStatsTimer = null;
+
+async function refreshStats() {
+  try {
+    const res = await fetch('/api/stats');
+    if (!res.ok) return;
+    const data = await res.json();
+    if (!data || !data.success) return;
+
+    const savedEl = document.getElementById('stats-saved-dollars');
+    if (savedEl) savedEl.textContent = data.formattedSaved || `$${(data.estimatedSavedDollars || 0).toFixed(2)}`;
+
+    const tokensEl = document.getElementById('stats-total-tokens');
+    if (tokensEl) {
+      const total = data.totalTokens || 0;
+      tokensEl.textContent = total >= 1000000 
+        ? (total / 1000000).toFixed(2) + 'M' 
+        : total >= 1000 
+          ? (total / 1000).toFixed(1) + 'k' 
+          : total.toLocaleString();
+    }
+
+    const breakdownEl = document.getElementById('stats-tokens-breakdown');
+    if (breakdownEl) {
+      const p = (data.totalPromptTokens || 0).toLocaleString();
+      const c = (data.totalCompletionTokens || 0).toLocaleString();
+      breakdownEl.textContent = `${p} in / ${c} out`;
+    }
+
+    const reqsEl = document.getElementById('stats-requests-count');
+    if (reqsEl) reqsEl.textContent = (data.totalRequests || 0).toLocaleString();
+
+    const accountEl = document.getElementById('stats-active-account');
+    if (accountEl) accountEl.textContent = data.activeTokenLabel || 'Guest Mode';
+
+    const badgeEl = document.getElementById('stats-rotation-badge');
+    if (badgeEl) {
+      if (data.rotationsCount > 0) {
+        badgeEl.textContent = `${data.rotationsCount} ROTATIONS`;
+      } else {
+        badgeEl.textContent = 'AUTO-ROTATION ON';
+      }
+    }
+  } catch (err) {
+    console.debug('Failed to refresh stats:', err.message);
+  }
+}
+
+window.refreshStats = refreshStats;
+
+function initStats() {
+  const btnQuickRotate = document.getElementById('btn-quick-rotate');
+  if (btnQuickRotate) {
+    btnQuickRotate.addEventListener('click', async () => {
+      try {
+        btnQuickRotate.disabled = true;
+        const res = await fetch('/api/tokens/rotate', { method: 'POST' });
+        const data = await res.json();
+        if (data.rotated) {
+          if (typeof showToast === 'function') showToast(`Rotated to ${data.token.label}!`);
+        } else {
+          if (typeof showToast === 'function') showToast(data.reason || 'Could not rotate token', 'warning');
+        }
+        await refreshStats();
+        if (typeof window.loadTokensGlobal === 'function') window.loadTokensGlobal();
+      } catch (e) {
+        if (typeof showToast === 'function') showToast('Rotation failed', 'error');
+      } finally {
+        btnQuickRotate.disabled = false;
+      }
+    });
+  }
+
+  // Initial fetch and recurring poll every 5s
+  refreshStats();
+  if (refreshStatsTimer) clearInterval(refreshStatsTimer);
+  refreshStatsTimer = setInterval(refreshStats, 5000);
+}
+
+/* =====================================================
+   3. Token Management
    ===================================================== */
 async function initTokens() {
   const headerStatus = document.getElementById('header-token-status');
@@ -212,9 +203,12 @@ async function initTokens() {
       const item = document.createElement('div');
       item.className = `account-item ${tok.active ? 'active' : ''}`;
 
+      const isCooldown = tok.isRateLimited;
+      const cooldownBadge = isCooldown ? `<span class="badge-cooldown">⚠️ Cooldown (${tok.cooldownRemainingSec}s)</span>` : '';
+
       item.innerHTML = `
         <div class="account-info">
-          <strong>${escapeHtml(tok.label)} ${tok.active ? '<span class="badge-status ok">ACTIVE</span>' : ''}</strong>
+          <strong>${escapeHtml(tok.label)} ${tok.active ? '<span class="badge-status ok">ACTIVE</span>' : ''} ${cooldownBadge}</strong>
           <code class="token-code">${tok.maskedToken}</code>
         </div>
         <div class="account-actions">
@@ -236,6 +230,7 @@ async function initTokens() {
             body: JSON.stringify({ id }),
           });
           loadTokens();
+          if (window.refreshStats) window.refreshStats();
         } catch (err) {
           alert('Failed to activate token: ' + err.message);
         }
@@ -265,10 +260,49 @@ async function initTokens() {
         body: JSON.stringify({ id: 'guest' }),
       });
       loadTokens();
+      if (window.refreshStats) window.refreshStats();
     } catch (err) {
       alert('Failed to switch to guest mode: ' + err.message);
     }
   });
+
+  const btnRotate = document.getElementById('btn-rotate-token');
+  if (btnRotate) {
+    btnRotate.addEventListener('click', async () => {
+      try {
+        btnRotate.disabled = true;
+        const res = await fetch('/api/tokens/rotate', { method: 'POST' });
+        const data = await res.json();
+        if (data.rotated) {
+          alert(`Rotated to "${data.token.label}"!`);
+        } else {
+          alert(data.reason || 'Could not rotate token');
+        }
+        await loadTokens();
+        if (window.refreshStats) window.refreshStats();
+      } catch (err) {
+        alert('Rotation error: ' + err.message);
+      } finally {
+        btnRotate.disabled = false;
+      }
+    });
+  }
+
+  const btnClearCooldowns = document.getElementById('btn-clear-cooldowns');
+  if (btnClearCooldowns) {
+    btnClearCooldowns.addEventListener('click', async () => {
+      try {
+        await fetch('/api/tokens/clear-cooldowns', { method: 'POST' });
+        alert('All token rate-limit cooldowns have been reset!');
+        await loadTokens();
+        if (window.refreshStats) window.refreshStats();
+      } catch (err) {
+        alert('Failed to clear cooldowns');
+      }
+    });
+  }
+
+  window.loadTokensGlobal = loadTokens;
 
   addForm.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -516,6 +550,7 @@ function initChat() {
     } finally {
       btnSend.disabled = false;
       chatInput.focus();
+      if (window.refreshStats) window.refreshStats();
     }
   });
 }
@@ -716,6 +751,7 @@ function initTesting() {
       responseOutput.textContent = `Execution Error:\n${err.message}`;
     } finally {
       btnRun.disabled = false;
+      if (window.refreshStats) window.refreshStats();
     }
   });
 

@@ -7,6 +7,7 @@ import { chatRouter } from './routes/chat.js';
 import { subagentRouter } from './routes/subagent.js';
 import { tokensRouter } from './routes/tokens.js';
 import { logsRouter } from './routes/logs.js';
+import { statsRouter } from './routes/stats.js';
 import { logger } from './logger.js';
 
 export function createApp() {
@@ -18,7 +19,7 @@ export function createApp() {
 
   // Request logger for API calls
   app.use((req, res, next) => {
-    if (!req.path.startsWith('/api/logs') && !req.path.endsWith('.css') && !req.path.endsWith('.js') && !req.path.endsWith('.ico')) {
+    if (!req.path.startsWith('/api/logs') && !req.path.startsWith('/api/stats') && !req.path.endsWith('.css') && !req.path.endsWith('.js') && !req.path.endsWith('.ico')) {
       logger.addLog('request', `${req.method} ${req.path}`);
     }
     next();
@@ -36,6 +37,7 @@ export function createApp() {
   // Register dashboard APIs
   app.use(tokensRouter);
   app.use(logsRouter);
+  app.use(statsRouter);
 
   // Register OpenAI-compatible and subagent routes
   app.use(modelsRouter);

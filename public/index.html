@@ -22,42 +22,9 @@
 </head>
 <body>
   <div class="app-container">
-    <!-- Mobile Top Navigation Bar (Shown only on small screens) -->
-    <header class="mobile-header">
-      <button type="button" class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Open navigation menu">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="3" y1="12" x2="21" y2="12"></line>
-          <line x1="3" y1="6" x2="21" y2="6"></line>
-          <line x1="3" y1="18" x2="21" y2="18"></line>
-        </svg>
-      </button>
-
-      <div class="brand">
-        <div class="brand-logo">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="m13 2-2 2.5h3L11 8h3l-4 5h3l-5 9 3-7H8l3-4H8l4-5H9l4-4Z"/>
-          </svg>
-        </div>
-        <div class="brand-info">
-          <span class="brand-name">zai2api</span>
-        </div>
-      </div>
-
-      <div class="mobile-header-right">
-        <div class="status-indicator">
-          <span class="status-dot"></span>
-          <span class="status-label">ONLINE</span>
-        </div>
-      </div>
-    </header>
-
-    <!-- Mobile Drawer Backdrop -->
-    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
-
-    <!-- Main Sidebar Navigation -->
-    <aside class="sidebar" id="app-sidebar">
-      <!-- Sidebar Brand & Collapse Header -->
-      <div class="sidebar-header">
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
         <div class="brand">
           <div class="brand-logo">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
@@ -70,96 +37,91 @@
           </div>
         </div>
 
-        <button type="button" class="sidebar-collapse-btn" id="sidebar-collapse-btn" title="Toggle compact sidebar" aria-label="Toggle compact sidebar">
-          <svg class="collapse-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <polyline points="11 17 6 12 11 7"></polyline>
-            <polyline points="18 17 13 12 18 7"></polyline>
-          </svg>
-        </button>
-      </div>
-
-      <!-- Server Status Badge -->
-      <div class="sidebar-status-wrap">
-        <div class="status-indicator" id="server-status-pill" title="Server Status">
+        <div class="status-indicator" id="server-status-pill">
           <span class="status-dot"></span>
           <span class="status-label" id="server-status">ONLINE</span>
-          <span class="status-endpoint">127.0.0.1:3000</span>
         </div>
       </div>
 
       <!-- Navigation Tabs -->
-      <div class="sidebar-nav-container">
-        <div class="sidebar-section-title">
-          <span>NAVIGATION</span>
+      <nav class="nav-tabs">
+        <button class="nav-btn active" data-tab="chat">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          <span>Chat</span>
+        </button>
+        <button class="nav-btn" data-tab="testing">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          <span>Playground</span>
+        </button>
+        <button class="nav-btn" data-tab="tokens">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>
+          <span>Tokens</span>
+        </button>
+        <button class="nav-btn" data-tab="logs">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
+          <span>Logs</span>
+        </button>
+      </nav>
+
+      <!-- Header Controls (Token + Theme Switcher) -->
+      <div class="header-right">
+        <div class="token-badge" id="header-token-badge">
+          <span class="token-badge-icon">●</span>
+          <span id="header-token-status">Checking...</span>
         </div>
-        <nav class="sidebar-nav">
-          <button class="nav-btn active" data-tab="chat" title="Chat Studio (Alt+1)">
-            <span class="nav-icon">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
-            </span>
-            <span class="nav-label">Chat Studio</span>
-            <span class="nav-badge">AI</span>
-          </button>
 
-          <button class="nav-btn" data-tab="testing" title="Playground & cURL (Alt+2)">
-            <span class="nav-icon">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-            </span>
-            <span class="nav-label">Playground & cURL</span>
-            <span class="nav-shortcut">⌘2</span>
-          </button>
-
-          <button class="nav-btn" data-tab="tokens" title="Tokens & Auth (Alt+3)">
-            <span class="nav-icon">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>
-            </span>
-            <span class="nav-label">Tokens & Auth</span>
-            <span class="nav-shortcut">⌘3</span>
-          </button>
-
-          <button class="nav-btn" data-tab="logs" title="Live Stream Logs (Alt+4)">
-            <span class="nav-icon">
-              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
-            </span>
-            <span class="nav-label">Live Logs</span>
-            <span class="nav-live-dot" title="Live streaming"></span>
-          </button>
-        </nav>
+        <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Toggle dark/light mode" title="Toggle theme">
+          <svg class="theme-icon sun" id="theme-icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="5"></circle>
+            <line x1="12" y1="1" x2="12" y2="3"></line>
+            <line x1="12" y1="21" x2="12" y2="23"></line>
+            <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+            <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+            <line x1="1" y1="12" x2="3" y2="12"></line>
+            <line x1="21" y1="12" x2="23" y2="12"></line>
+            <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+            <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
+          <svg class="theme-icon moon" id="theme-icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
       </div>
+    </header>
 
-      <!-- Sidebar Footer (Active Account & Theme Switcher) -->
-      <div class="sidebar-footer">
-        <!-- Active Session Card -->
-        <div class="sidebar-token-card" id="header-token-badge">
-          <div class="sidebar-token-header">
-            <span class="token-pulse-dot"></span>
-            <span class="sidebar-token-title">ACTIVE SESSION</span>
-          </div>
-          <div class="sidebar-token-value" id="header-token-status">Checking...</div>
+    <!-- Global Metrics & Savings Bar -->
+    <section class="stats-ribbon" id="stats-ribbon">
+      <div class="stats-metric savings-highlight">
+        <span class="stats-label">EST. MONEY SAVED</span>
+        <span class="stats-value" id="stats-saved-dollars">$0.00</span>
+        <span class="stats-subtext">vs GPT-4o / Claude rates</span>
+      </div>
+      <div class="stats-divider"></div>
+      <div class="stats-metric">
+        <span class="stats-label">TOTAL TOKENS</span>
+        <span class="stats-value" id="stats-total-tokens">0</span>
+        <span class="stats-subtext" id="stats-tokens-breakdown">0 in / 0 out</span>
+      </div>
+      <div class="stats-divider"></div>
+      <div class="stats-metric">
+        <span class="stats-label">REQUESTS</span>
+        <span class="stats-value" id="stats-requests-count">0</span>
+        <span class="stats-subtext">completions served</span>
+      </div>
+      <div class="stats-divider"></div>
+      <div class="stats-metric rotation-metric">
+        <div class="rotation-top">
+          <span class="stats-label">ACTIVE ACCOUNT</span>
+          <span class="rotation-badge" id="stats-rotation-badge">AUTO-ROTATION ON</span>
         </div>
-
-        <!-- Sidebar Bottom Controls -->
-        <div class="sidebar-controls">
-          <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Toggle dark/light mode" title="Toggle theme (Light / Dark)">
-            <svg class="theme-icon sun" id="theme-icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <circle cx="12" cy="12" r="5"></circle>
-              <line x1="12" y1="1" x2="12" y2="3"></line>
-              <line x1="12" y1="21" x2="12" y2="23"></line>
-              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
-              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
-              <line x1="1" y1="12" x2="3" y2="12"></line>
-              <line x1="21" y1="12" x2="23" y2="12"></line>
-              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
-              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
-            </svg>
-            <svg class="theme-icon moon" id="theme-icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-            </svg>
-            <span class="theme-toggle-label">Appearance</span>
+        <div class="rotation-bottom">
+          <span class="stats-value-small" id="stats-active-account">Checking...</span>
+          <button type="button" class="btn-rotate-pill" id="btn-quick-rotate" title="Rotate to next available token">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+            <span>Rotate</span>
           </button>
         </div>
       </div>
-    </aside>
+    </section>
 
     <!-- Main Views Container -->
     <main class="content-wrapper">
@@ -349,8 +311,15 @@
             </div>
           </div>
           <div class="identity-right">
+            <button class="btn btn-primary btn-sm" id="btn-rotate-token" title="Rotate to next saved token">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.5 2v6h-6M21.34 15.57a10 10 0 1 1-.57-8.38l5.67-5.67"/></svg>
+              <span>Rotate Token</span>
+            </button>
+            <button class="btn btn-secondary btn-sm" id="btn-clear-cooldowns" title="Clear all rate-limit cooldown timers">
+              <span>Reset Cooldowns</span>
+            </button>
             <button class="btn btn-secondary btn-sm" id="btn-guest-mode">
-              <span>Switch to Free / Guest Mode</span>
+              <span>Guest Mode</span>
             </button>
           </div>
         </div>
