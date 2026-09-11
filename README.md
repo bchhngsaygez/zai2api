@@ -116,48 +116,162 @@ curl http://127.0.0.1:3000/v1/chat/completions \
 
 ---
 
-## Public Sharing (Cloudflare Tunnel)
+## Production Hosting & Deployment
 
-Expose port 3000 publicly with free SSL:
+`zai2api` is engineered for 24/7 autonomous operation with ultra-low memory consumption:
+- **Idle**: ~533 MB RAM
+- **Active Streaming**: ~608 MB RAM
+- **Peak Ceiling**: < 750 MB RAM
 
-```bash
-npm run tunnel
-```
+It runs reliably on any budget cloud VPS ($3–$5/mo on Hetzner, DigitalOcean, Oracle Cloud Free Tier, Linode, AWS Lightsail) or home server.
 
-Cloudflare outputs a public HTTPS address (e.g. `https://random-name.trycloudflare.com`). Use this URL as the base URL (`/v1`) from any remote device or share it with others.
+### Server Requirements
+- **OS**: Linux (Ubuntu 22.04/24.04, Debian 12, Alpine) or macOS
+- **RAM**: Minimum 1 GB (+ 1-2 GB swap file), Recommended 2 GB
+- **CPU**: 1 vCPU or higher
+- **Node.js**: `>= 22.0.0` (for bare-metal execution)
 
 ---
 
-## Docker Deployment
+### Method 1: Docker Compose (Recommended)
 
-### Docker Compose (Recommended)
+The easiest and most isolated production setup with automatic container recovery:
 
 ```bash
-# Start in background
+# 1. Clone repository
+git clone https://github.com/bchhngsaygez/zai2api.git
+cd zai2api
+
+# 2. Configure environment
+cp .env.example .env
+
+# 3. Launch container in background
 docker compose up -d --build
 
-# View logs
+# View real-time logs
 docker compose logs -f
 
 # Stop container
 docker compose down
 ```
 
-### Docker CLI
+### Method 2: PM2 (Node Process Manager on VPS)
+
+If hosting directly on a Linux VPS without Docker:
 
 ```bash
-docker build -t zai2api:latest .
+# 1. Install Node 22 & PM2
+curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+sudo apt install -y nodejs
+sudo npm install -g pm2
 
-docker run -d \
-  --name zai2api \
-  -p 3000:3000 \
-  --shm-size=1g \
-  -v $(pwd)/user-data-camoufox:/app/user-data-camoufox \
-  -v $(pwd)/tokens.json:/app/tokens.json \
-  -v $(pwd)/stats.json:/app/stats.json \
-  --restart unless-stopped \
-  zai2api:latest
+# 2. Clone & install dependencies
+git clone https://github.com/bchhngsaygez/zai2api.git
+cd zai2api
+npm install
+
+# 3. Start process with memory limit guard
+pm2 start src/index.js --name zai2api --max-memory-restart 850M
+
+# 4. Persist across server reboots
+pm2 startup
+pm2 save
 ```
+
+### Method 3: Systemd Service (Linux Daemon)
+
+Create a systemd unit file at `/etc/systemd/system/zai2api.service`:
+
+```ini
+[Unit]
+Description=zai2api OpenAI Proxy Server
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/zai2api
+ExecStart=/usr/bin/node src/index.js
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOST=127.0.0.1
+
+[Install]
+WantedBy=multi-user.target
+```
+
+Enable and start the service:
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now zai2api
+sudo systemctl status zai2api
+```
+
+---
+
+### Exposing Securely for Remote Access
+
+To connect Cline or Cursor running on your laptop to your remote hosted server:
+
+#### Option A: Cloudflare Tunnel (Zero Open Ports & Free SSL - Recommended)
+Exposes port 3000 safely without opening firewall ports, configuring router NAT, or buying SSL certificates:
+
+1. **Temporary Session**:
+   ```bash
+   npm run tunnel
+   ```
+2. **Permanent Custom Domain** (e.g. `https://zai.yourdomain.com`):
+   ```bash
+   # Install cloudflared
+   curl -L --output cloudflared.deb https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+   sudo dpkg -i cloudflared.deb
+
+   # Login and create tunnel
+   cloudflared tunnel login
+   cloudflared tunnel create zai2api
+   cloudflared tunnel route dns zai2api zai.yourdomain.com
+   ```
+   Add to `~/.cloudflared/config.yml`:
+   ```yaml
+   tunnel: zai2api
+   credentials-file: /root/.cloudflared/<tunnel-id>.json
+   ingress:
+     - hostname: zai.yourdomain.com
+       service: http://127.0.0.1:3000
+     - service: http_status:404
+   ```
+   Install system service: `sudo cloudflared service install`.
+
+#### Option B: Nginx Reverse Proxy with Certbot
+Forward port 443 with SSE streaming configurations:
+
+```nginx
+server {
+    server_name zai.yourdomain.com;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+
+        # Critical for streaming completions
+        proxy_buffering off;
+        proxy_cache off;
+        proxy_read_timeout 600s;
+        proxy_send_timeout 600s;
+    }
+}
+```
+Obtain free SSL:
+```bash
+sudo certbot --nginx -d zai.yourdomain.com
+```
+
+#### Option C: Tailscale (Private Mesh Network)
+Install Tailscale on both your VPS and your local machine. You can then connect Cline or Cursor to `http://<tailscale-ip>:3000/v1` without exposing any ports to the public internet.
 
 ---
 

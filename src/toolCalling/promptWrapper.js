@@ -22,52 +22,34 @@ export function buildPromptWithTools({ messages = [], tools = [] }) {
       return t;
     });
 
-    toolInstruction = `[CRITICAL SYSTEM DIRECTIVE: TOOL CALLING]
-You have access to the following tools:
+    toolInstruction = `[SYSTEM: AVAILABLE TOOLS]
 \`\`\`json
-${JSON.stringify(formattedTools, null, 2)}
+${JSON.stringify(formattedTools)}
 \`\`\`
 
-EXECUTION RULES:
-1. To invoke a tool, output ONE tool call using standard JSON or XML format:
+[TOOL INVOCATION DIRECTIVE]
+To execute an action, output EXACTLY ONE tool call and STOP immediately. Formats accepted:
 
-FORMAT A (Tool JSON):
+Option 1 (JSON Block):
 \`\`\`json
-{
-  "name": "tool_name",
-  "arguments": {
-    "param1": "value"
-  }
-}
-\`\`\`
-OR flat parameters:
-\`\`\`json
-{
-  "name": "tool_name",
-  "param1": "value"
-}
+{"name": "tool_name", "arguments": {"param1": "value1"}}
 \`\`\`
 
-FORMAT B (XML Invoke):
+Option 2 (XML Tag):
 <invoke name="tool_name">
-<parameter name="param1">value</parameter>
+<parameter name="param1">value1</parameter>
 </invoke>
 
-FORMAT C (Tool Call Tag):
+Option 3 (Tool Tag):
 <tool_call>tool_name
-param1: value
-param2: ["value1", "value2"]
+param1: value1
 </tool_call>
 
-2. CRITICAL - STOP IMMEDIATELY AFTER CLOSING THE TOOL CALL:
-Once you finish writing the tool call (closing \`\`\`, </invoke>, or </tool_call>), YOU MUST STOP GENERATING IMMEDIATELY.
-DO NOT write fake tool results.
-DO NOT invent or pretend you ran the command or edited the file.
-The IDE environment executes the tool in the real OS file system and returns the actual result in the next turn.
-
-3. You may provide a short 1-sentence thought before invoking the tool.
-4. MANDATORY: When the user request requires creating, reading, editing, or executing files or commands, you MUST ALWAYS output the tool call block. NEVER say you will create or edit a file without outputting the tool call block in the same message.
-5. If and only if no tool or command is required (e.g. general conversation, pure explanation), respond normally with standard text.`;
+STRICT RULES:
+1. NEVER fabricate simulated tool outputs, file contents, or shell results. Real execution occurs in the host environment.
+2. STOP generation immediately upon closing the tool block (\`\`\`, </invoke>, or </tool_call>).
+3. If an action, inspection, or file modification is needed, emit the tool call IMMEDIATELY with ZERO conversational filler.
+4. If no tool is needed, respond with standard plain text.`;
   }
 
   // 2. Process conversation messages
@@ -128,7 +110,7 @@ The IDE environment executes the tool in the real OS file system and returns the
   }
 
   if (hasTools) {
-    sections.push('[Reminder: If an action, file operation, question, or command is requested, invoke the appropriate tool immediately in ```json, <invoke>, or <tool_call> and STOP.]');
+    sections.push('[FINAL DIRECTIVE: If a tool or command is required, emit the tool call NOW and STOP. Do not output explanatory chatter before or after.]');
   }
 
   prompt = sections.join('\n\n---\n\n');
