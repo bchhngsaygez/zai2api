@@ -53,8 +53,14 @@ FORMAT B (XML Invoke):
 <parameter name="param1">value</parameter>
 </invoke>
 
+FORMAT C (Tool Call Tag):
+<tool_call>tool_name
+param1: value
+param2: ["value1", "value2"]
+</tool_call>
+
 2. CRITICAL - STOP IMMEDIATELY AFTER CLOSING THE TOOL CALL:
-Once you finish writing the tool call (closing \`\`\` or </invoke>), YOU MUST STOP GENERATING IMMEDIATELY.
+Once you finish writing the tool call (closing \`\`\`, </invoke>, or </tool_call>), YOU MUST STOP GENERATING IMMEDIATELY.
 DO NOT write fake tool results.
 DO NOT invent or pretend you ran the command or edited the file.
 The IDE environment executes the tool in the real OS file system and returns the actual result in the next turn.
@@ -122,7 +128,7 @@ The IDE environment executes the tool in the real OS file system and returns the
   }
 
   if (hasTools) {
-    sections.push('[Reminder: If an action, file operation, or command is requested, invoke the appropriate tool immediately in ```json or <invoke> and STOP.]');
+    sections.push('[Reminder: If an action, file operation, question, or command is requested, invoke the appropriate tool immediately in ```json, <invoke>, or <tool_call> and STOP.]');
   }
 
   prompt = sections.join('\n\n---\n\n');

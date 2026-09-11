@@ -134,9 +134,160 @@ function tryParseJsonToolCall(jsonStr) {
 }
 
 /**
+ * Parses key-value / YAML lines within tool blocks (e.g. question: ... \n options: [...])
+ */
+function parseKvOrYaml(bodyText) {
+  const args = {};
+  const lines = bodyText.split('\n');
+  let currentKey = null;
+  let currentValue = '';
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const kvMatch = line.match(/^([a-zA-Z0-9_\-]+):\s*(.*)$/);
+    if (kvMatch) {
+      if (currentKey) {
+        saveParsedArg(args, currentKey, currentValue);
+      }
+      currentKey = kvMatch[1].trim();
+      currentValue = kvMatch[2];
+    } else if (currentKey) {
+      currentValue += '\n' + line;
+    }
+  }
+
+  if (currentKey) {
+    saveParsedArg(args, currentKey, currentValue);
+  }
+
+  return args;
+}
+
+function saveParsedArg(args, key, rawVal) {
+  const trimmed = rawVal.trim();
+  if (
+    (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
+    (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
+    trimmed === 'true' || trimmed === 'false' ||
+    /^-?\d+(?:\.\d+)?$/.test(trimmed) ||
+    (trimmed.startsWith('"') && trimmed.endsWith('"'))
+  ) {
+    try {
+      args[key] = JSON.parse(trimmed);
+      return;
+    } catch (e) {}
+  }
+  args[key] = trimmed;
+}
+
+/**
+ * Handles all variations of <tool_call> tags emitted by GLM, Qwen, and custom agent prompts:
+ * - <tool_call>tool_name\nkey: val\n...</tool_call>
+ * - <tool_call name="tool_name">...</tool_call>
+ * - <tool_call:tool_name>...</tool_call>
+ * - <tool_call>\n<name>...</name><arguments>...</arguments>\n</tool_call>
+ * - <tool_call>\n{"name": "...", "arguments": {...}}\n</tool_call>
+ */
+function parseToolCallTag(text) {
+  const tagRegex = /<(?:tool_call|tool-call)(?::([a-zA-Z0-9_\-\.]+)|(?:\s+name=["']([^"']+)["']))?>([\s\S]*?)(?:<\/(?:tool_call|tool-call)>|$)/i;
+  const match = text.match(tagRegex);
+  if (!match) return null;
+
+  let toolName = match[1] || match[2] || '';
+  let body = match[3].trim();
+
+  // Strip fake tool results if unclosed
+  const fakeResultIdx = body.search(/\[(?:Tool Result|System|User|Assistant)/i);
+  if (fakeResultIdx !== -1) {
+    body = body.slice(0, fakeResultIdx).trim();
+  }
+
+  // 1. Check if body has <name>...</name>
+  const nameTagMatch = body.match(/<name>([^<]+)<\/name>/i);
+  if (nameTagMatch) {
+    toolName = nameTagMatch[1].trim();
+    const argsTagMatch = body.match(/<arguments>([\s\S]*?)<\/arguments>/i);
+    if (argsTagMatch) {
+      body = argsTagMatch[1].trim();
+    }
+  }
+
+  // 2. Check if body has name: tool_name or tool: tool_name
+  if (!toolName) {
+    const nameLineMatch = body.match(/^(?:name|tool|tool_name|action):\s*([a-zA-Z0-9_\-\.]+)\s*(?:\n|$)([\s\S]*)$/i);
+    if (nameLineMatch) {
+      toolName = nameLineMatch[1].trim();
+      body = nameLineMatch[2].trim();
+    }
+  }
+
+  // 3. Check if first line is simply the tool name: e.g. <tool_call>ask_question\n
+  if (!toolName) {
+    const firstLineMatch = body.match(/^([a-zA-Z0-9_\-\.]+)(?:\s*\n|\s*$)([\s\S]*)$/);
+    if (firstLineMatch) {
+      toolName = firstLineMatch[1].trim();
+      body = firstLineMatch[2].trim();
+    }
+  }
+
+  // 4. Check if body is a JSON object with name property
+  if (!toolName) {
+    try {
+      const parsedJson = JSON.parse(body);
+      if (parsedJson.name || parsedJson.tool || parsedJson.action) {
+        toolName = parsedJson.name || parsedJson.tool || parsedJson.action;
+        body = JSON.stringify(parsedJson.arguments || parsedJson.parameters || parsedJson);
+      }
+    } catch (e) {}
+  }
+
+  if (!toolName) return null;
+
+  // Now parse arguments from body
+  let args = {};
+
+  // A. Check if body contains XML child tags: e.g. <question>...</question>
+  const childTagRegex = /<([a-zA-Z0-9_\-]+)>([\s\S]*?)<\/\1>/gi;
+  let cMatch;
+  let xmlCount = 0;
+  while ((cMatch = childTagRegex.exec(body)) !== null) {
+    xmlCount++;
+    args[cMatch[1]] = cMatch[2].trim();
+  }
+
+  // B. Check if body is JSON
+  if (xmlCount === 0) {
+    const trimmedBody = body.trim();
+    if ((trimmedBody.startsWith('{') && trimmedBody.endsWith('}')) || (trimmedBody.startsWith('[') && trimmedBody.endsWith(']'))) {
+      try {
+        const parsed = JSON.parse(trimmedBody);
+        args = parsed.arguments || parsed.parameters || parsed;
+      } catch (e) {}
+    }
+  }
+
+  // C. If args still empty, parse Key-Value / YAML
+  if (Object.keys(args).length === 0 && body.length > 0) {
+    args = parseKvOrYaml(body);
+  }
+
+  return {
+    toolCall: {
+      id: `call_${crypto.randomBytes(8).toString('hex')}`,
+      type: 'function',
+      function: {
+        name: toolName,
+        arguments: JSON.stringify(args),
+      },
+    },
+    index: match.index,
+  };
+}
+
+/**
  * Parses XML-based tool call formats commonly used by Cline and agent frameworks:
  * 1. <invoke name="tool_name"><parameter name="...">val</parameter></invoke>
- * 2. <tool_call><name>...</name><arguments>...</arguments></tool_call>
+ * 2. <tool_call>...</tool_call> (YAML, JSON, XML tags, or key-value format)
  * 3. Direct tool tags: <write_to_file><path>...</path><content>...</content></write_to_file>
  */
 function parseXmlToolCall(text, toolList = []) {
@@ -169,22 +320,10 @@ function parseXmlToolCall(text, toolList = []) {
     };
   }
 
-  // 2. Match <tool_call><name>...</name><arguments>...</arguments></tool_call>
-  const toolCallTagRegex = /<tool_call>[\s\S]*?<name>([^<]+)<\/name>[\s\S]*?<arguments>([\s\S]*?)<\/arguments>[\s\S]*?<\/tool_call>/i;
-  const tcMatch = text.match(toolCallTagRegex);
-  if (tcMatch) {
-    const toolName = tcMatch[1].trim();
-    let args = {};
-    try { args = JSON.parse(tcMatch[2].trim()); }
-    catch (e) { args = { input: tcMatch[2].trim() }; }
-    return {
-      toolCall: {
-        id: `call_${crypto.randomBytes(8).toString('hex')}`,
-        type: 'function',
-        function: { name: toolName, arguments: typeof args === 'string' ? args : JSON.stringify(args) },
-      },
-      index: tcMatch.index,
-    };
+  // 2. Match <tool_call> ... (supports JSON, XML, or Key-Value / YAML parameters)
+  const toolCallResult = parseToolCallTag(text);
+  if (toolCallResult) {
+    return toolCallResult;
   }
 
   // 3. Match direct tool tags: e.g. <write_to_file>, <execute_command>, <read_file>, <editor>, <run_commands>
@@ -192,7 +331,7 @@ function parseXmlToolCall(text, toolList = []) {
   const commonTools = [
     'write_to_file', 'execute_command', 'read_file', 'replace_in_file',
     'editor', 'read_files', 'run_commands',
-    'attempt_completion', 'ask_followup_question', 'apply_diff', 'list_dir', 'search_files',
+    'attempt_completion', 'ask_question', 'ask_followup_question', 'apply_diff', 'list_dir', 'search_files',
     ...dynamicToolNames,
   ];
   const uniqueToolNames = [...new Set(commonTools)];
