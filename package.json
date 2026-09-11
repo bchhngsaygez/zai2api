@@ -1,0 +1,33 @@
+{
+  "name": "zai2api",
+  "version": "1.0.0",
+  "description": "OpenAI-compatible API proxy for Z.ai web chat with Tool Calling, Alibaba Cloud WAF bypass, FIFO queue, and Subagent architecture",
+  "main": "src/index.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "tunnel": "cloudflared tunnel --url http://127.0.0.1:3000",
+    "login": "node src/cli/login.js",
+    "subagent": "node src/cli/runSubagent.js",
+    "test:chat": "node tests/testChatCompletion.js",
+    "test:tools": "node tests/testToolCalling.js",
+    "test:subagent": "node tests/testSubagent.js"
+  },
+  "keywords": [
+    "zai",
+    "glm",
+    "openai-proxy",
+    "tool-calling",
+    "puppeteer-stealth",
+    "subagent"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "camoufox-js": "^0.12.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "playwright-core": "^1.60.0"
+  }
+}

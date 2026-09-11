@@ -1,0 +1,12 @@
+node_modules
+user-data
+user-data-camoufox
+tokens.json
+.git
+.github
+.env
+*.log
+npm-debug.log*
+.DS_Store
+generated_*
+tests/tmp*

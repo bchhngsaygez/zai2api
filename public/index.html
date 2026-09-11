@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="color-scheme" content="light dark">
+  <title>zai2api | Z.ai API Studio</title>
+  
+  <!-- Early Theme Init to Prevent Flash -->
+  <script>
+    (function() {
+      const saved = localStorage.getItem('zai_theme');
+      const theme = saved || 'dark';
+      document.documentElement.setAttribute('data-theme', theme);
+    })();
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@400;500;600&family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- Mobile Top Navigation Bar (Shown only on small screens) -->
+    <header class="mobile-header">
+      <button type="button" class="mobile-menu-btn" id="mobile-menu-btn" aria-label="Open navigation menu">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="3" y1="12" x2="21" y2="12"></line>
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+      </button>
+
+      <div class="brand">
+        <div class="brand-logo">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="m13 2-2 2.5h3L11 8h3l-4 5h3l-5 9 3-7H8l3-4H8l4-5H9l4-4Z"/>
+          </svg>
+        </div>
+        <div class="brand-info">
+          <span class="brand-name">zai2api</span>
+        </div>
+      </div>
+
+      <div class="mobile-header-right">
+        <div class="status-indicator">
+          <span class="status-dot"></span>
+          <span class="status-label">ONLINE</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Mobile Drawer Backdrop -->
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
+
+    <!-- Main Sidebar Navigation -->
+    <aside class="sidebar" id="app-sidebar">
+      <!-- Sidebar Brand & Collapse Header -->
+      <div class="sidebar-header">
+        <div class="brand">
+          <div class="brand-logo">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="m13 2-2 2.5h3L11 8h3l-4 5h3l-5 9 3-7H8l3-4H8l4-5H9l4-4Z"/>
+            </svg>
+          </div>
+          <div class="brand-info">
+            <span class="brand-name">zai2api</span>
+            <span class="brand-tag">v1.0</span>
+          </div>
+        </div>
+
+        <button type="button" class="sidebar-collapse-btn" id="sidebar-collapse-btn" title="Toggle compact sidebar" aria-label="Toggle compact sidebar">
+          <svg class="collapse-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="11 17 6 12 11 7"></polyline>
+            <polyline points="18 17 13 12 18 7"></polyline>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Server Status Badge -->
+      <div class="sidebar-status-wrap">
+        <div class="status-indicator" id="server-status-pill" title="Server Status">
+          <span class="status-dot"></span>
+          <span class="status-label" id="server-status">ONLINE</span>
+          <span class="status-endpoint">127.0.0.1:3000</span>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <div class="sidebar-nav-container">
+        <div class="sidebar-section-title">
+          <span>NAVIGATION</span>
+        </div>
+        <nav class="sidebar-nav">
+          <button class="nav-btn active" data-tab="chat" title="Chat Studio (Alt+1)">
+            <span class="nav-icon">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            </span>
+            <span class="nav-label">Chat Studio</span>
+            <span class="nav-badge">AI</span>
+          </button>
+
+          <button class="nav-btn" data-tab="testing" title="Playground & cURL (Alt+2)">
+            <span class="nav-icon">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+            </span>
+            <span class="nav-label">Playground & cURL</span>
+            <span class="nav-shortcut">⌘2</span>
+          </button>
+
+          <button class="nav-btn" data-tab="tokens" title="Tokens & Auth (Alt+3)">
+            <span class="nav-icon">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>
+            </span>
+            <span class="nav-label">Tokens & Auth</span>
+            <span class="nav-shortcut">⌘3</span>
+          </button>
+
+          <button class="nav-btn" data-tab="logs" title="Live Stream Logs (Alt+4)">
+            <span class="nav-icon">
+              <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="4" y1="9" x2="20" y2="9"/><line x1="4" y1="15" x2="20" y2="15"/><line x1="10" y1="3" x2="8" y2="21"/><line x1="16" y1="3" x2="14" y2="21"/></svg>
+            </span>
+            <span class="nav-label">Live Logs</span>
+            <span class="nav-live-dot" title="Live streaming"></span>
+          </button>
+        </nav>
+      </div>
+
+      <!-- Sidebar Footer (Active Account & Theme Switcher) -->
+      <div class="sidebar-footer">
+        <!-- Active Session Card -->
+        <div class="sidebar-token-card" id="header-token-badge">
+          <div class="sidebar-token-header">
+            <span class="token-pulse-dot"></span>
+            <span class="sidebar-token-title">ACTIVE SESSION</span>
+          </div>
+          <div class="sidebar-token-value" id="header-token-status">Checking...</div>
+        </div>
+
+        <!-- Sidebar Bottom Controls -->
+        <div class="sidebar-controls">
+          <button type="button" class="theme-toggle" id="theme-toggle" aria-label="Toggle dark/light mode" title="Toggle theme (Light / Dark)">
+            <svg class="theme-icon sun" id="theme-icon-sun" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="5"></circle>
+              <line x1="12" y1="1" x2="12" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="23"></line>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+              <line x1="1" y1="12" x2="3" y2="12"></line>
+              <line x1="21" y1="12" x2="23" y2="12"></line>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
+            <svg class="theme-icon moon" id="theme-icon-moon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display: none;">
+              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+            </svg>
+            <span class="theme-toggle-label">Appearance</span>
+          </button>
+        </div>
+      </div>
+    </aside>
+
+    <!-- Main Views Container -->
+    <main class="content-wrapper">
+      
+      <!-- 1. CHAT TAB -->
+      <section id="tab-chat" class="tab-panel active">
+        <!-- Controls Bar -->
+        <div class="chat-controls-bar">
+          <div class="control-group">
+            <label class="control-label" for="chat-model-select">Model</label>
+            <div class="select-wrapper">
+              <select id="chat-model-select" class="mono-select">
+                <option value="glm-5.3-flash" selected>glm-5.3-flash (Default)</option>
+                <option value="glm-5.3">glm-5.3</option>
+                <option value="glm-5.2">glm-5.2</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Thinking Mode Segmented Control -->
+          <div class="control-group">
+            <label class="control-label">Thinking Mode</label>
+            <div class="segmented-control" id="chat-thinking-control">
+              <button type="button" class="segment-btn" data-mode="low" title="Low reasoning overhead">
+                <span>Low</span>
+              </button>
+              <button type="button" class="segment-btn" data-mode="high" title="Balanced reasoning budget">
+                <span>High</span>
+              </button>
+              <button type="button" class="segment-btn active" data-mode="max" title="Maximum deep thinking budget">
+                <span>Max</span>
+              </button>
+            </div>
+          </div>
+
+          <div class="control-group-right">
+            <button class="btn btn-secondary btn-sm" id="btn-clear-chat" title="Clear chat session">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path></svg>
+              <span>Reset</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Chat Conversation Area -->
+        <div class="chat-viewport" id="chat-window">
+          <div class="chat-hero">
+            <div class="hero-icon">
+              <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+              </svg>
+            </div>
+            <h2>zai2api Studio</h2>
+            <p>Direct low-latency streaming to Z.ai with reasoning extraction and thinking modes.</p>
+            <div class="hero-suggestions">
+              <button class="chip-suggestion" data-prompt="Explain quantum entanglement in 3 simple sentences.">
+                <span class="chip-title">Quantum Entanglement</span>
+                <span class="chip-desc">Explain the core principles in 3 simple sentences</span>
+              </button>
+              <button class="chip-suggestion" data-prompt="Write an async/await retry function in TypeScript with exponential backoff.">
+                <span class="chip-title">TypeScript Retry</span>
+                <span class="chip-desc">Async helper with exponential backoff & jitter</span>
+              </button>
+              <button class="chip-suggestion" data-prompt="Solve a challenging logical riddle step-by-step.">
+                <span class="chip-title">Logic Puzzle</span>
+                <span class="chip-desc">Step-by-step deduction of a complex riddle</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Chat Input Bar -->
+        <form id="chat-form" class="chat-input-bar">
+          <div class="input-container">
+            <textarea id="chat-input" rows="1" placeholder="Send a message... (Enter to send, Shift+Enter for newline)"></textarea>
+            <div class="input-actions">
+              <span class="active-mode-tag" id="input-mode-tag">Max Thinking</span>
+              <button type="submit" class="btn btn-primary btn-icon-only" id="btn-chat-send" title="Send Message">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                  <line x1="22" y1="2" x2="11" y2="13"></line>
+                  <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+              </button>
+            </div>
+          </div>
+        </form>
+      </section>
+
+      <!-- 2. TESTING & CURL PLAYGROUND -->
+      <section id="tab-testing" class="tab-panel">
+        <div class="section-header">
+          <div>
+            <h2>API Playground</h2>
+            <p class="section-sub">Test endpoints, inspect raw SSE streams, and export cURL commands.</p>
+          </div>
+        </div>
+
+        <div class="presets-row">
+          <span class="presets-label">Presets:</span>
+          <button class="preset-chip" data-preset="simple">Simple Ping</button>
+          <button class="preset-chip" data-preset="stream">Stream</button>
+          <button class="preset-chip" data-preset="low-think">Low Think</button>
+          <button class="preset-chip" data-preset="max-think">Max Think</button>
+          <button class="preset-chip" data-preset="tools">Tool Calling</button>
+          <button class="preset-chip" data-preset="models">List Models</button>
+          <button class="preset-chip" data-preset="health">Health Check</button>
+        </div>
+
+        <div class="playground-grid">
+          <!-- Request Panel -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <h3>Request</h3>
+            </div>
+            
+            <div class="form-row-compact">
+              <div class="field-item method-field">
+                <label for="test-method">Method</label>
+                <select id="test-method" class="mono-select">
+                  <option value="POST">POST</option>
+                  <option value="GET">GET</option>
+                </select>
+              </div>
+              <div class="field-item path-field">
+                <label for="test-path">Endpoint</label>
+                <input type="text" id="test-path" class="mono-input" value="/v1/chat/completions">
+              </div>
+            </div>
+
+            <div class="field-item" id="group-test-body">
+              <div class="field-label-row">
+                <label for="test-body">Payload (JSON)</label>
+                <span class="field-hint">OpenAI Chat Completion</span>
+              </div>
+              <textarea id="test-body" rows="12" class="mono-textarea code-editor"></textarea>
+            </div>
+
+            <div class="panel-footer">
+              <button class="btn btn-primary" id="btn-run-test">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>
+                <span>Execute</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Output Panel -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <h3>cURL Command</h3>
+              <button class="btn btn-secondary btn-sm" id="btn-copy-curl">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+                <span>Copy</span>
+              </button>
+            </div>
+            <pre class="terminal-box code-curl" id="curl-output"></pre>
+
+            <div class="panel-header" style="margin-top: 16px;">
+              <div class="header-status-group">
+                <h3>Response</h3>
+                <span id="test-status-badge" class="badge-status idle">Idle</span>
+              </div>
+              <span id="test-latency" class="latency-metric"></span>
+            </div>
+            <pre class="terminal-box code-response" id="test-response-output">Ready to execute...</pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. TOKENS TAB -->
+      <section id="tab-tokens" class="tab-panel">
+        <div class="section-header">
+          <div>
+            <h2>Authentication & Tokens</h2>
+            <p class="section-sub">Manage your Z.ai accounts. Tokens are stored locally in tokens.json.</p>
+          </div>
+        </div>
+
+        <!-- Active Identity Banner -->
+        <div class="identity-card" id="current-token-card">
+          <div class="identity-left">
+            <div class="id-avatar">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/></svg>
+            </div>
+            <div class="id-details">
+              <span class="id-subtitle">Active Identity</span>
+              <h3 id="active-token-label">Checking token...</h3>
+              <code id="active-token-preview" class="token-code"></code>
+            </div>
+          </div>
+          <div class="identity-right">
+            <button class="btn btn-secondary btn-sm" id="btn-guest-mode">
+              <span>Switch to Free / Guest Mode</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="tokens-grid">
+          <!-- Add Token Form -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <h3>Add New Token</h3>
+            </div>
+            <form id="form-add-token" class="token-form">
+              <div class="form-group">
+                <label for="token-label">Account Label</label>
+                <input type="text" id="token-label" class="mono-input" placeholder="e.g. Work Account" required>
+              </div>
+              <div class="form-group">
+                <label for="token-jwt">Session Token (JWT)</label>
+                <textarea id="token-jwt" rows="4" class="mono-textarea" placeholder="Paste your eyJhbGciOiJFUzI1Ni... token" required></textarea>
+                <span class="field-hint">Extracted from browser localStorage (token / auth_token)</span>
+              </div>
+              <div class="form-toggle">
+                <label class="switch-container">
+                  <input type="checkbox" id="token-set-active" checked>
+                  <span class="switch-slider"></span>
+                </label>
+                <label for="token-set-active" class="switch-label">Activate immediately</label>
+              </div>
+              <button type="submit" class="btn btn-primary">
+                <span>Save Token</span>
+              </button>
+            </form>
+          </div>
+
+          <!-- Stored Accounts List -->
+          <div class="panel-card">
+            <div class="panel-header">
+              <h3>Saved Accounts</h3>
+            </div>
+            <div id="tokens-list" class="accounts-list">
+              <div class="empty-state">No saved tokens found</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4. LOGS TAB -->
+      <section id="tab-logs" class="tab-panel">
+        <div class="terminal-container">
+          <div class="terminal-bar">
+            <div class="terminal-title">
+              <span class="status-dot"></span>
+              <span>LIVE SERVER STDOUT & EVENT STREAM</span>
+            </div>
+            <div class="terminal-controls">
+              <input type="text" id="log-search" class="terminal-input" placeholder="Filter logs...">
+              <select id="log-level-filter" class="terminal-select">
+                <option value="all">All Levels</option>
+                <option value="info">Info</option>
+                <option value="request">Requests</option>
+                <option value="warn">Warnings</option>
+                <option value="error">Errors</option>
+              </select>
+              <label class="toggle-autoscroll">
+                <input type="checkbox" id="log-autoscroll" checked>
+                <span>Autoscroll</span>
+              </label>
+              <button class="btn btn-secondary btn-icon-only btn-sm" id="btn-copy-logs" title="Copy logs">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+              </button>
+              <button class="btn btn-secondary btn-icon-only btn-sm" id="btn-clear-logs" title="Clear logs">
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18"></path><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="terminal-body" id="logs-terminal">
+            <div class="log-line info">Connecting to live log stream...</div>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

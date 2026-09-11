@@ -1,0 +1,31 @@
+# Dependencies
+node_modules/
+
+# User Data & Browser Profiles (CRITICAL - DO NOT COMMIT)
+user-data/
+user-data-camoufox/
+*.default-release/
+
+# Personal Secrets & Session Tokens (CRITICAL - DO NOT COMMIT)
+.env
+.env.local
+.env.*.local
+tokens.json
+
+# Logs & Diagnostics
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Test & Generated Artifacts
+generated_*/
+tests/tmp*
+
+# OS & Editor Files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
