@@ -54,7 +54,9 @@ cd zai2api
 npm install
 ```
 
-> **Requirement**: Node.js `>= 22.0.0`
+> **Requirement**: Node.js `>= 20.0.0` (Recommended: **Node.js 22 LTS**).
+> 
+> 💡 **Windows Users**: If using bleeding-edge Node versions (e.g. Node 25) without Visual Studio C++ build tools, `.npmrc` is pre-configured with `ignore-scripts=true` so prebuilt binaries are used without needing `node-gyp rebuild`. Alternatively, run `npm install --ignore-scripts` or switch to **Node.js 22 LTS**.
 
 ### 2. Configuration
 

@@ -29,5 +29,8 @@
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
     "playwright-core": "^1.60.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }
