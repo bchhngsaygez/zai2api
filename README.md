@@ -1,6 +1,16 @@
 # zai2api
 
+[![OpenAI Compatible](https://img.shields.io/badge/API-OpenAI%20Compatible-000000?style=flat-square)](https://github.com/bchhngsaygez/zai2api)
+[![Node.js Version](https://img.shields.io/badge/Node.js-%3E%3D22.0.0-000000?style=flat-square&logo=node.js)](https://nodejs.org)
+[![Engine](https://img.shields.io/badge/Engine-Camoufox%20Gecko-000000?style=flat-square&logo=firefoxbrowser)](https://github.com/bchhngsaygez/zai2api)
+[![Docker Ready](https://img.shields.io/badge/Docker-Ready-000000?style=flat-square&logo=docker)](https://github.com/bchhngsaygez/zai2api)
+[![License: MIT](https://img.shields.io/badge/License-MIT-000000?style=flat-square)](LICENSE)
+
 OpenAI-compatible API proxy for Z.ai (GLM-5.3-Flash / GLM-5.3) web chat. Designed for coding assistants (Cline, Roo Code, Cursor), featuring stealth browser automation, robust tool calling, low RAM usage, and instant public tunneling.
+
+<p align="center">
+  <img src="assets/dashboard-dark.png" alt="zai2api Studio Dashboard" width="100%">
+</p>
 
 ---
 
@@ -69,6 +79,27 @@ Open `http://127.0.0.1:3000` to access the web studio.
 
 ---
 
+## Web Studio Dashboard
+
+Available at `http://127.0.0.1:3000`:
+
+| Chat Studio (Dark) | API Playground (Light) |
+| :---: | :---: |
+| <img src="assets/dashboard-dark.png" width="100%"> | <img src="assets/dashboard-playground.png" width="100%"> |
+
+| Collapsed Compact Rail (72px) | Mobile Drawer Navigation |
+| :---: | :---: |
+| <img src="assets/dashboard-compact.png" width="100%"> | <img src="assets/dashboard-mobile.png" width="100%"> |
+
+- **Chat Studio**: Direct streaming chat with thinking mode toggles (`low`, `high`, `max`) and expandable thought processes.
+- **Playground & cURL**: Interactive endpoint tester with one-click presets and cURL command export.
+- **Tokens & Auth**: Manage multiple Z.ai accounts, test session health, or switch to Guest Mode.
+- **Live Logs**: Real-time server terminal streaming stdout events via SSE.
+- **Collapsible Sidebar**: Compact 72px icon mode on desktop, responsive slide-out drawer on mobile.
+- **Shortcuts**: `Alt+1` (Chat), `Alt+2` (Playground), `Alt+3` (Tokens), `Alt+4` (Logs).
+
+---
+
 ## Client Setup
 
 ### Cline (VS Code Extension)
@@ -103,19 +134,6 @@ response = client.chat.completions.create(
 for chunk in response:
     print(chunk.choices[0].delta.content or "", end="", flush=True)
 ```
-
----
-
-## Web Studio Dashboard
-
-Available at `http://127.0.0.1:3000`:
-
-- **Chat Studio**: Direct streaming chat with thinking mode toggles (`low`, `high`, `max`) and expandable thought processes.
-- **Playground & cURL**: Interactive endpoint tester with one-click presets and cURL command export.
-- **Tokens & Auth**: Manage multiple Z.ai accounts, test session health, or switch to Guest Mode.
-- **Live Logs**: Real-time server terminal streaming stdout events via SSE.
-- **Collapsible Sidebar**: Compact 72px icon mode on desktop, responsive slide-out drawer on mobile.
-- **Shortcuts**: `Alt+1` (Chat), `Alt+2` (Playground), `Alt+3` (Tokens), `Alt+4` (Logs).
 
 ---
 
