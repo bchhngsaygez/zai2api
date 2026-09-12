@@ -124,13 +124,16 @@ export class BrowserController extends EventEmitter {
 
   /**
    * Automatically dismisses marketing popups, announcement dialogs,
-   * and floating backdrop overlays that block user interaction.
+   * floating menus, and backdrop overlays that block user interaction.
    */
   async dismissModals() {
     if (!this.page || this.page.isClosed()) return;
     try {
+      // 1. Send Escape key to close any active popovers, dropdowns, or tooltips
+      await this.page.keyboard.press('Escape').catch(() => {});
+
       await this.page.evaluate(() => {
-        // 1. Click dismiss buttons (Maybe Later, Close, Dismiss)
+        // 2. Click dismiss buttons (Maybe Later, Close, Dismiss)
         const buttons = Array.from(document.querySelectorAll('button'));
         for (const btn of buttons) {
           const text = (btn.innerText || '').trim().toLowerCase();
@@ -147,28 +150,130 @@ export class BrowserController extends EventEmitter {
           }
         }
 
-        // 2. Remove dialog overlays and floating wrappers that intercept pointer events
+        // 3. Remove dialog overlays, floating wrappers, and backdrops that intercept pointer events
         const selectorsToPurge = [
           'div.fixed.inset-0.z-10000',
+          'div.fixed.inset-0.z-50',
           '[data-dialog-overlay]',
           '._modal-overlay',
           '[data-bits-floating-content-wrapper]',
+          '[data-radix-popper-content-wrapper]',
           '[data-popover-content]',
+          '[data-dropdown-menu-content]',
+          '[role="menu"]',
         ];
         for (const sel of selectorsToPurge) {
-          document.querySelectorAll(sel).forEach(el => el.remove());
+          document.querySelectorAll(sel).forEach(el => {
+            // Safety: never purge an element containing the chat input or textarea
+            if (!el.querySelector('#chat-input') && !el.querySelector('textarea')) {
+              el.remove();
+            }
+          });
         }
 
-        // 3. Restore body scrolling and pointer events
+        // 4. Restore body scrolling and pointer events
         if (document.body) {
           document.body.style.pointerEvents = 'auto';
           document.body.style.overflow = 'auto';
+        }
+
+        // 5. Ensure chatInput is unblocked, enabled, and editable
+        const input = document.querySelector('#chat-input, textarea');
+        if (input) {
+          input.removeAttribute('disabled');
+          input.removeAttribute('readonly');
+          input.disabled = false;
+          input.readOnly = false;
+          input.style.pointerEvents = 'auto';
         }
       });
     } catch (e) {
       // Non-critical, ignore
     }
   }
+
+  /**
+   * Resilient input setter that prevents Playwright actionability timeouts.
+   * Uses page.fill with a short timeout, seamlessly falling back to direct
+   * DOM property injection with Svelte reactive event triggering.
+   */
+  async setChatInputValue(prompt = '') {
+    if (!this.page || this.page.isClosed()) return;
+
+    // 1. Dismiss any blocking overlays
+    await this.dismissModals();
+
+    // 2. Wait for textarea selector in DOM
+    const inputHandle = await this.page.waitForSelector(selectors.chatInput, { timeout: 8000 }).catch(() => null);
+    if (!inputHandle) {
+      throw new Error(`Chat input not found in DOM (waited for: ${selectors.chatInput})`);
+    }
+
+    // 3. Try standard page.fill with a short 2000ms timeout
+    let filled = false;
+    try {
+      await this.page.fill(selectors.chatInput, prompt, { timeout: 2000 });
+      filled = true;
+    } catch (fillErr) {
+      console.warn('[Browser] page.fill actionability delayed or blocked, applying direct DOM value injection...');
+    }
+
+    // 4. If page.fill timed out or failed, inject value directly into DOM
+    if (!filled) {
+      await this.page.evaluate(({ sel, text }) => {
+        const input = document.querySelector(sel.chatInput);
+        if (!input) return false;
+
+        // Force enable and editable
+        input.removeAttribute('disabled');
+        input.removeAttribute('readonly');
+        input.disabled = false;
+        input.readOnly = false;
+        input.style.pointerEvents = 'auto';
+
+        // React & Svelte native prototype property setter
+        const proto = window.HTMLTextAreaElement.prototype;
+        const nativeSetter = Object.getOwnPropertyDescriptor(proto, 'value')?.set;
+        if (nativeSetter) {
+          nativeSetter.call(input, text);
+        } else {
+          input.value = text;
+        }
+
+        // Trigger full event sequence for Svelte reactive bindings
+        input.dispatchEvent(new Event('focus', { bubbles: true }));
+        input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+        return true;
+      }, { sel: selectors, text: prompt }).catch(() => false);
+    }
+
+    // 5. Always ensure input & change events are dispatched for Svelte reactivity
+    await this.page.evaluate((sel) => {
+      const input = document.querySelector(sel.chatInput);
+      if (input) {
+        input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+        input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+      }
+    }, selectors).catch(() => {});
+
+    // 6. Verify input value
+    if (prompt) {
+      const currentVal = await this.page.inputValue(selectors.chatInput).catch(() => '');
+      if (!currentVal) {
+        console.warn('[Browser] Input value empty after initial injection. Retrying direct property assign...');
+        await this.page.evaluate(({ sel, text }) => {
+          const input = document.querySelector(sel.chatInput);
+          if (input) {
+            input.value = text;
+            input.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+            input.dispatchEvent(new Event('change', { bubbles: true, composed: true }));
+          }
+        }, { sel: selectors, text: prompt }).catch(() => {});
+      }
+    }
+  }
+
 
   async setupPage() {
     const pages = typeof this.browser.pages === 'function' ? this.browser.pages() : [];
@@ -317,12 +422,13 @@ export class BrowserController extends EventEmitter {
           waitUntil: 'domcontentloaded',
           timeout: 30000,
         });
+      } else {
+        await this.page.waitForURL((url) => !url.pathname.includes('/c/'), { timeout: 5000 }).catch(() => {});
       }
 
       await new Promise(r => setTimeout(r, 400));
       await this.dismissModals();
-      await this.page.waitForSelector(selectors.chatInput, { timeout: 15000 });
-      await this.page.fill(selectors.chatInput, '');
+      await this.setChatInputValue('');
 
       // Ensure token is saved in localStorage
       if (config.zaiAuthToken) {
@@ -448,6 +554,7 @@ export class BrowserController extends EventEmitter {
         }
       }, targetText);
       await new Promise(r => setTimeout(r, 300));
+      await this.page.keyboard.press('Escape').catch(() => {});
     } catch (e) {
       console.warn('[Browser] setModel warning:', e.message);
     }
@@ -461,18 +568,30 @@ export class BrowserController extends EventEmitter {
 
       await this.page.evaluate(async (target) => {
         const all = Array.from(document.querySelectorAll('*'));
-        const dtElements = all.filter(el => el.innerText && el.innerText.includes('Deep Think') && el.children.length > 0 && el.children.length < 4);
+        const dtElements = all.filter(el => {
+          const t = el.innerText || '';
+          return (t.includes('Deep Think') || t.includes('深度思考')) && el.children.length > 0 && el.children.length < 4;
+        });
         const trigger = dtElements[dtElements.length - 1];
         if (!trigger) return;
 
         const currentText = trigger.innerText.toLowerCase();
-        if (currentText.includes(target)) return;
+        const isAlreadyActive = trigger.classList.contains('active') ||
+                                trigger.getAttribute('aria-pressed') === 'true' ||
+                                trigger.getAttribute('data-state') === 'on' ||
+                                trigger.classList.contains('bg-primary') ||
+                                trigger.classList.contains('text-primary');
+
+        if (currentText.includes(target) || (isAlreadyActive && target === 'max')) return;
 
         trigger.click();
         await new Promise(r => setTimeout(r, 400));
 
         const options = Array.from(document.querySelectorAll('[data-dropdown-menu-content] *, [role="menu"] *, [data-bits-floating-content-wrapper] *'));
-        const match = options.find(el => el.innerText && el.innerText.trim().toLowerCase() === target && el.children.length === 0);
+        const match = options.find(el => {
+          const t = (el.innerText || '').trim().toLowerCase();
+          return (t === target || t.includes(target)) && el.children.length === 0;
+        });
         if (match) {
           match.click();
         } else {
@@ -480,6 +599,7 @@ export class BrowserController extends EventEmitter {
         }
       }, targetMode);
       await new Promise(r => setTimeout(r, 300));
+      await this.page.keyboard.press('Escape').catch(() => {});
     } catch (e) {
       console.warn('[Browser] setThinkingMode warning:', e.message);
     }
@@ -696,26 +816,18 @@ export class BrowserController extends EventEmitter {
       if (model) await this.setModel(model);
       if (thinkingMode) await this.setThinkingMode(thinkingMode);
 
-      // 1. Enter prompt in textarea using page.fill to trigger Svelte reactivity
-      await this.page.waitForSelector(selectors.chatInput, { timeout: 10000 });
-      await this.page.fill(selectors.chatInput, prompt);
+      // Clean up any dropdowns or backdrops left from model/thinking switch
+      await this.dismissModals();
 
-      // Explicitly dispatch input and change events to ensure Svelte bindings activate
-      await this.page.evaluate((sel) => {
-        const input = document.querySelector(sel.chatInput);
-        if (input) {
-          input.dispatchEvent(new Event('input', { bubbles: true }));
-          input.dispatchEvent(new Event('change', { bubbles: true }));
-        }
-      }, selectors).catch(() => {});
+      // 1. Enter prompt in textarea using resilient multi-stage setter
+      await this.setChatInputValue(prompt);
 
       await new Promise(r => setTimeout(r, 400));
       await this.dismissModals();
 
-      // 2. Click send button via DOM click or fallback to keyboard Enter
+      // 2. Click send button via DOM click with multi-attempt polling or fallback to keyboard Enter
       let clicked = false;
-      const sendBtn = await this.page.waitForSelector(selectors.sendMessageButton, { timeout: 2000 }).catch(() => null);
-      if (sendBtn) {
+      for (let attempt = 0; attempt < 5; attempt++) {
         clicked = await this.page.evaluate((sel) => {
           const btn = document.querySelector(sel.sendMessageButton);
           if (btn && !btn.disabled && !btn.classList.contains('disabled')) {
@@ -724,10 +836,10 @@ export class BrowserController extends EventEmitter {
           }
           return false;
         }, selectors).catch(() => false);
-      }
 
-      if (!clicked) {
-        // Fallback: try alternate button selectors directly in DOM
+        if (clicked) break;
+
+        // Alternate button selectors directly in DOM
         clicked = await this.page.evaluate(() => {
           const candidates = [
             '#send-message-button',
@@ -746,11 +858,17 @@ export class BrowserController extends EventEmitter {
           }
           return false;
         }).catch(() => false);
+
+        if (clicked) break;
+        await new Promise(r => setTimeout(r, 200));
       }
 
       if (!clicked) {
         console.log('[Browser] Send button not clickable or not found, falling back to Enter key...');
-        await this.page.focus(selectors.chatInput).catch(() => {});
+        await this.page.evaluate((sel) => {
+          const input = document.querySelector(sel.chatInput);
+          if (input) input.focus();
+        }, selectors).catch(() => {});
         await this.page.keyboard.press('Enter').catch(() => {});
       }
 
