@@ -364,7 +364,7 @@ function isValidCandidatePath(p) {
 
 /**
  * Normalizes tool arguments across aliases and fills in missing paths or parameters
- * required by agent environments like Cline.
+ * required by agent environments like Cline and OpenCode Desktop.
  */
 export function normalizeToolArgs(toolName, args = {}, tools = [], rawText = '', messages = []) {
   if (!args || typeof args !== 'object' || Array.isArray(args)) {
@@ -373,27 +373,26 @@ export function normalizeToolArgs(toolName, args = {}, tools = [], rawText = '',
 
   const normToolName = (toolName || '').toLowerCase().trim();
 
-  // 1. File modification / creation tools
-  if (['editor', 'write_to_file', 'new_file', 'create_file', 'edit_file', 'replace_in_file'].includes(normToolName)) {
-    // Normalise path
-    if (!args.path) {
-      args.path = args.file_path || args.filePath || args.target_file || args.targetFile ||
-                  args.target_path || args.targetPath || args.file || args.filename ||
-                  args.name || args.oldTextPath || args.old_text_path || args.newTextPath;
-    }
-    if (!args.path) {
+  // 1. File modification / creation tools (Cline: editor, OpenCode: write, edit)
+  if (['editor', 'write', 'edit', 'write_to_file', 'new_file', 'create_file', 'edit_file', 'replace_in_file'].includes(normToolName)) {
+    // Normalise path / filePath
+    let targetPath = args.filePath || args.path || args.file_path || args.target_file ||
+                     args.targetFile || args.target_path || args.targetPath || args.file ||
+                     args.filename || args.name || args.oldTextPath || args.old_text_path || args.newTextPath;
+
+    if (!targetPath) {
       const fallbackPath = findRecentFilePath(messages, rawText);
       if (fallbackPath) {
         console.warn(`[Parser] Auto-resolved missing path for ${toolName} to: ${fallbackPath}`);
-        args.path = fallbackPath;
+        targetPath = fallbackPath;
       }
     }
-    if (!args.path) {
-      args.path = 'index.html'; // Safe fallback so Cline does not throw Zod validation error
+    if (!targetPath) {
+      targetPath = 'index.html'; // Safe fallback
     }
 
-    // Normalise new_text / content
     if (normToolName === 'editor') {
+      args.path = targetPath;
       if (args.new_text === undefined) {
         args.new_text = args.newText !== undefined ? args.newText :
                         args.newtext !== undefined ? args.newtext :
@@ -408,11 +407,9 @@ export function normalizeToolArgs(toolName, args = {}, tools = [], rawText = '',
       if (typeof args.new_text !== 'string') {
         args.new_text = String(args.new_text || '');
       }
-
       if (args.old_text === undefined && args.oldText !== undefined) {
         args.old_text = args.oldText;
       }
-
       delete args.newText;
       delete args.newtext;
       delete args.oldText;
@@ -425,7 +422,57 @@ export function normalizeToolArgs(toolName, args = {}, tools = [], rawText = '',
       delete args.targetFile;
       delete args.target_path;
       delete args.targetPath;
+    } else if (normToolName === 'write') {
+      // OpenCode write tool expects filePath and content
+      args.filePath = targetPath;
+      if (args.content === undefined) {
+        args.content = args.new_text !== undefined ? args.new_text :
+                       args.newText !== undefined ? args.newText :
+                       args.text !== undefined ? args.text :
+                       args.code !== undefined ? args.code :
+                       args.file_text !== undefined ? args.file_text :
+                       args.body !== undefined ? args.body :
+                       args.input !== undefined ? args.input :
+                       '';
+      }
+      if (typeof args.content !== 'string') {
+        args.content = String(args.content || '');
+      }
+      delete args.path;
+      delete args.new_text;
+      delete args.newText;
+      delete args.file;
+      delete args.target_file;
+    } else if (normToolName === 'edit') {
+      // OpenCode edit tool expects filePath, oldString, newString
+      args.filePath = targetPath;
+      if (args.oldString === undefined) {
+        args.oldString = args.old_string !== undefined ? args.old_string :
+                         args.old_text !== undefined ? args.old_text :
+                         args.oldText !== undefined ? args.oldText :
+                         args.old !== undefined ? args.old :
+                         '';
+      }
+      if (args.newString === undefined) {
+        args.newString = args.new_string !== undefined ? args.new_string :
+                         args.new_text !== undefined ? args.new_text :
+                         args.newText !== undefined ? args.newText :
+                         args.content !== undefined ? args.content :
+                         args.text !== undefined ? args.text :
+                         '';
+      }
+      if (typeof args.oldString !== 'string') args.oldString = String(args.oldString || '');
+      if (typeof args.newString !== 'string') args.newString = String(args.newString || '');
+      delete args.path;
+      delete args.old_string;
+      delete args.old_text;
+      delete args.oldText;
+      delete args.new_string;
+      delete args.new_text;
+      delete args.newText;
+      delete args.content;
     } else {
+      args.path = targetPath;
       if (args.content === undefined) {
         args.content = args.new_text !== undefined ? args.new_text :
                        args.newText !== undefined ? args.newText :
@@ -446,7 +493,7 @@ export function normalizeToolArgs(toolName, args = {}, tools = [], rawText = '',
     }
   }
 
-  // 2. File reading / inspection tools
+  // 2. File reading / inspection tools (Cline: read_files, OpenCode: read)
   if (normToolName === 'read_files') {
     if (!args.files || !Array.isArray(args.files) || args.files.length === 0) {
       let targetPath = args.path || args.file || args.filePath || args.target_file;
@@ -468,20 +515,24 @@ export function normalizeToolArgs(toolName, args = {}, tools = [], rawText = '',
     delete args.path;
     delete args.file;
     delete args.paths;
-  } else if (normToolName === 'read_file') {
-    if (!args.path) {
-      args.path = args.file || args.filePath || args.target_file;
+  } else if (normToolName === 'read' || normToolName === 'read_file') {
+    let targetPath = args.filePath || args.path || args.file || args.target_file;
+    if (!targetPath) {
+      targetPath = findRecentFilePath(messages, rawText);
     }
-    if (!args.path) {
-      const fallbackPath = findRecentFilePath(messages, rawText);
-      if (fallbackPath) {
-        console.warn(`[Parser] Auto-resolved target path for read_file to: ${fallbackPath}`);
-        args.path = fallbackPath;
-      }
+    if (normToolName === 'read') {
+      args.filePath = targetPath || '';
+      delete args.path;
+      delete args.file;
+      delete args.target_file;
+    } else {
+      args.path = targetPath || '';
+      delete args.filePath;
+      delete args.file;
     }
   }
 
-  // 3. Command execution tools
+  // 3. Command execution tools (Cline: run_commands, OpenCode: bash, execute_command)
   if (normToolName === 'run_commands') {
     if (!args.commands) {
       if (args.command) {
@@ -504,17 +555,34 @@ export function normalizeToolArgs(toolName, args = {}, tools = [], rawText = '',
         args.commands = [`rm -f "${junkMatch[1]}"`];
       }
     }
-  } else if (normToolName === 'execute_command') {
+  } else if (['bash', 'execute_command', 'run_command', 'execute_bash'].includes(normToolName)) {
     if (!args.command) {
       if (Array.isArray(args.commands) && args.commands.length > 0) {
         args.command = args.commands.join(' && ');
       } else if (args.cmd) {
         args.command = args.cmd;
+      } else if (args.commands && typeof args.commands === 'string') {
+        args.command = args.commands;
       }
     }
+    if (args.command === undefined) {
+      args.command = '';
+    }
+    delete args.commands;
+    delete args.cmd;
   }
 
-  // 4. Skills tool (Cline skill execution)
+  // 4. Search tools (OpenCode: glob, grep)
+  if (normToolName === 'glob' || normToolName === 'grep') {
+    if (!args.pattern) {
+      args.pattern = args.query || args.search || args.regex || '*';
+    }
+    delete args.query;
+    delete args.search;
+    delete args.regex;
+  }
+
+  // 5. Skills tool (Cline skill execution)
   if (normToolName === 'skills') {
     if (!args.skill && args.name) {
       args.skill = args.name;
@@ -530,8 +598,8 @@ export function normalizeToolArgs(toolName, args = {}, tools = [], rawText = '',
     }
   }
 
-  // 4. Question tools
-  if (normToolName === 'ask_followup_question' || normToolName === 'ask_question') {
+  // 6. Question tools
+  if (['ask_followup_question', 'ask_question', 'question'].includes(normToolName)) {
     if (!args.question) {
       args.question = args.prompt || args.message || args.text || 'Please confirm how you would like to proceed:';
     }
@@ -1050,8 +1118,174 @@ export function parseResponse(rawText, tools = [], messages = []) {
     }
   }
 
+  // 5. Fallback: Simulated terminal / command execution recovery (e.g. OpenCode 'bash' or Cline 'run_commands')
+  const cmdTool = (tools || []).find(t => {
+    const name = (t.function?.name || t.name || '').toLowerCase();
+    return ['bash', 'execute_command', 'run_commands', 'run_command', 'execute_bash'].includes(name);
+  });
+
+  if (cmdTool) {
+    const sim = extractSimulatedCommand(trimmed);
+    if (sim && sim.command) {
+      const toolName = cmdTool.function?.name || cmdTool.name;
+      const isRunCommands = toolName.toLowerCase() === 'run_commands';
+      const args = isRunCommands ? { commands: [sim.command] } : { command: sim.command };
+      console.warn(`[Parser] Intercepted simulated command execution ("${sim.command}"). Auto-synthesizing ${toolName} tool call...`);
+      const normalizedToolCall = applyNormalizedToolCall({
+        id: `call_${crypto.randomBytes(8).toString('hex')}`,
+        type: 'function',
+        function: {
+          name: toolName,
+          arguments: JSON.stringify(args),
+        },
+      }, tools, trimmed, messages);
+
+      return {
+        isToolCall: true,
+        toolCalls: [normalizedToolCall],
+        content: sim.preText || null,
+      };
+    }
+  }
+
+  // 6. Fallback: File write / code block recovery (OpenCode 'write' / 'edit' / Cline 'editor')
+  const fileTool = (tools || []).find(t => {
+    const name = (t.function?.name || t.name || '').toLowerCase();
+    return ['write', 'editor', 'write_to_file', 'edit'].includes(name);
+  });
+
+  if (fileTool) {
+    const simFile = extractSimulatedFileWrite(trimmed, messages);
+    if (simFile && simFile.path && simFile.content) {
+      const toolName = fileTool.function?.name || fileTool.name;
+      const lowerTool = toolName.toLowerCase();
+      let args = {};
+      if (lowerTool === 'editor') {
+        args = { path: simFile.path, new_text: simFile.content };
+      } else if (lowerTool === 'write') {
+        args = { filePath: simFile.path, content: simFile.content };
+      } else if (lowerTool === 'edit') {
+        args = { filePath: simFile.path, newString: simFile.content };
+      } else {
+        args = { path: simFile.path, content: simFile.content };
+      }
+      console.warn(`[Parser] Intercepted raw code block file write for ${simFile.path}. Auto-synthesizing ${toolName}...`);
+      const normalizedToolCall = applyNormalizedToolCall({
+        id: `call_${crypto.randomBytes(8).toString('hex')}`,
+        type: 'function',
+        function: {
+          name: toolName,
+          arguments: JSON.stringify(args),
+        },
+      }, tools, trimmed, messages);
+
+      return {
+        isToolCall: true,
+        toolCalls: [normalizedToolCall],
+        content: simFile.preText || null,
+      };
+    }
+  }
+
   // Standard plain text
   return { isToolCall: false, content: rawText };
+}
+
+/**
+ * Extracts executable command from simulated terminal transcripts or shell code blocks.
+ */
+export function extractSimulatedCommand(text) {
+  if (!text || typeof text !== 'string') return null;
+
+  // 1. Check for markdown shell code blocks: ```bash, ```sh, ```zsh, ```shell
+  const codeBlockRegex = /```(?:bash|sh|zsh|shell|console|terminal)\s*([\s\S]*?)\s*```/gi;
+  let cbMatch;
+  while ((cbMatch = codeBlockRegex.exec(text)) !== null) {
+    const blockBody = cbMatch[1].trim();
+    const lines = blockBody.split(/\r?\n/)
+      .map(l => l.trim().replace(/^[$%#]\s*/, ''))
+      .filter(l => l && !l.startsWith('#') && !l.startsWith('//'));
+    if (lines.length > 0) {
+      const cmdCandidates = lines.filter(l => !/^(?:Compiling|Finished|warning:|error:|test result:|tests::|running\s+\d+|Done in|PASS|FAIL|BUILD SUCCESS)\b/i.test(l));
+      if (cmdCandidates.length > 0) {
+        return {
+          command: cmdCandidates.join(' && '),
+          preText: text.slice(0, cbMatch.index).trim(),
+        };
+      }
+    }
+  }
+
+  // 2. Check for lines starting with shell prompt: $ or % or #
+  const lines = text.split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    const promptMatch = line.match(/^[$%#]\s+(.+)$/);
+    if (promptMatch) {
+      const rawCmd = promptMatch[1].trim();
+      const outputSplit = rawCmd.match(/^(.+?)(?:\s+(?:Compiling|Running|Finished|warning:|error:|test result:|tests::|running\s+\d+\s+test|Done in|BUILD\s|yarn\s|npm\s+(?:warn|err)|stdout:|stderr:).*)$/i);
+      const cleanCmd = outputSplit ? outputSplit[1].trim() : rawCmd;
+      if (cleanCmd.length > 0) {
+        const preText = lines.slice(0, i).join('\n').trim();
+        return {
+          command: cleanCmd,
+          preText: preText || null,
+        };
+      }
+    }
+  }
+
+  // 3. Check for text starting directly with $ or % even without newlines:
+  const directMatch = text.match(/^\s*[$%#]\s+([\s\S]+)$/);
+  if (directMatch) {
+    const candidate = directMatch[1].trim();
+    const firstLine = candidate.split(/\r?\n/)[0].trim();
+    const outputSplit = firstLine.match(/^(.+?)(?:\s+(?:Compiling|Running|Finished|warning:|error:|test result:|tests::|running\s+\d+\s+test|Done in|BUILD\s|yarn\s|npm\s+(?:warn|err)|stdout:|stderr:).*)$/i);
+    const cleanCmd = outputSplit ? outputSplit[1].trim() : firstLine;
+    if (cleanCmd.length > 0) {
+      return {
+        command: cleanCmd,
+        preText: null,
+      };
+    }
+  }
+
+  return null;
+}
+
+/**
+ * Extracts intended file path and code content when a model emits raw markdown code blocks
+ * instead of invoking write or editor tools.
+ */
+export function extractSimulatedFileWrite(text, messages = []) {
+  if (!text || typeof text !== 'string') return null;
+
+  const writeIntentMatch = text.match(/(?:rewriting|writing|write|creating|create|saving|save|edit|replace|update|full code for)\s+[`'"]?([a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+)[`'"]?/i);
+  let targetPath = writeIntentMatch ? writeIntentMatch[1] : null;
+
+  if (!targetPath) {
+    targetPath = findRecentFilePath(messages, text);
+  }
+
+  if (!targetPath || !isValidCandidatePath(targetPath)) {
+    return null;
+  }
+
+  const codeBlockRegex = /```(?:[a-zA-Z0-9_\-]+)?\s*([\s\S]*?)\s*```/g;
+  let match;
+  while ((match = codeBlockRegex.exec(text)) !== null) {
+    const code = match[1].trim();
+    if (code.length > 15 && !code.startsWith('{') && !code.startsWith('$')) {
+      const preText = text.slice(0, match.index).trim();
+      return {
+        path: targetPath,
+        content: code,
+        preText: preText || null,
+      };
+    }
+  }
+
+  return null;
 }
 
 /**

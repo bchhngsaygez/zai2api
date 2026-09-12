@@ -84,6 +84,7 @@ function buildConcreteToolExamples(toolNames = []) {
   const examples = [];
   const lowerNames = toolNames.map(n => n.toLowerCase());
 
+  // 1. File modification / creation tools
   if (lowerNames.includes('editor')) {
     examples.push(`Example A — Create or Edit File ("editor"):
 <|DSML|tool_calls>
@@ -104,6 +105,38 @@ function buildConcreteToolExamples(toolNames = []) {
 </|DSML|tool_calls>`);
   }
 
+  if (lowerNames.includes('write')) {
+    examples.push(`Example A — Write File ("write"):
+<|DSML|tool_calls>
+  <|DSML|invoke name="write">
+    <|DSML|parameter name="filePath"><![CDATA[src/main.rs]]></|DSML|parameter>
+    <|DSML|parameter name="content"><![CDATA[fn main() {
+    println!("Hello from OpenCode");
+}]]></|DSML|parameter>
+  </|DSML|invoke>
+</|DSML|tool_calls>`);
+  } else if (lowerNames.includes('write_to_file')) {
+    examples.push(`Example A — Write File ("write_to_file"):
+<|DSML|tool_calls>
+  <|DSML|invoke name="write_to_file">
+    <|DSML|parameter name="path"><![CDATA[src/main.rs]]></|DSML|parameter>
+    <|DSML|parameter name="content"><![CDATA[fn main() {}]]></|DSML|parameter>
+  </|DSML|invoke>
+</|DSML|tool_calls>`);
+  }
+
+  if (lowerNames.includes('edit')) {
+    examples.push(`Example A2 — Edit File In-Place ("edit"):
+<|DSML|tool_calls>
+  <|DSML|invoke name="edit">
+    <|DSML|parameter name="filePath"><![CDATA[src/main.rs]]></|DSML|parameter>
+    <|DSML|parameter name="oldString"><![CDATA[println!("Hello world");]]></|DSML|parameter>
+    <|DSML|parameter name="newString"><![CDATA[println!("Hello, OpenCode!");]]></|DSML|parameter>
+  </|DSML|invoke>
+</|DSML|tool_calls>`);
+  }
+
+  // 2. Shell Command Execution tools
   if (lowerNames.includes('run_commands')) {
     examples.push(`Example B — Run Shell Commands ("run_commands"):
 <|DSML|tool_calls>
@@ -113,16 +146,17 @@ function buildConcreteToolExamples(toolNames = []) {
     </|DSML|parameter>
   </|DSML|invoke>
 </|DSML|tool_calls>`);
-  } else if (lowerNames.includes('execute_command') || lowerNames.includes('bash')) {
-    const cmdTool = toolNames.find(n => ['execute_command', 'bash', 'run_command'].includes(n.toLowerCase())) || 'execute_command';
+  } else if (lowerNames.includes('bash') || lowerNames.includes('execute_command') || lowerNames.includes('run_command')) {
+    const cmdTool = toolNames.find(n => ['bash', 'execute_command', 'run_command'].includes(n.toLowerCase())) || 'bash';
     examples.push(`Example B — Execute Command ("${cmdTool}"):
 <|DSML|tool_calls>
   <|DSML|invoke name="${cmdTool}">
-    <|DSML|parameter name="command"><![CDATA[npm test]]></|DSML|parameter>
+    <|DSML|parameter name="command"><![CDATA[. "$HOME/.cargo/env" && cargo test 2>&1]]></|DSML|parameter>
   </|DSML|invoke>
 </|DSML|tool_calls>`);
   }
 
+  // 3. File inspection tools
   if (lowerNames.includes('read_files')) {
     examples.push(`Example C — Inspect Files ("read_files"):
 <|DSML|tool_calls>
@@ -132,8 +166,15 @@ function buildConcreteToolExamples(toolNames = []) {
     </|DSML|parameter>
   </|DSML|invoke>
 </|DSML|tool_calls>`);
-  } else if (lowerNames.includes('read_file') || lowerNames.includes('read')) {
-    examples.push(`Example C — Read File:
+  } else if (lowerNames.includes('read')) {
+    examples.push(`Example C — Read File ("read"):
+<|DSML|tool_calls>
+  <|DSML|invoke name="read">
+    <|DSML|parameter name="filePath"><![CDATA[Cargo.toml]]></|DSML|parameter>
+  </|DSML|invoke>
+</|DSML|tool_calls>`);
+  } else if (lowerNames.includes('read_file')) {
+    examples.push(`Example C — Read File ("read_file"):
 <|DSML|tool_calls>
   <|DSML|invoke name="read_file">
     <|DSML|parameter name="path"><![CDATA[package.json]]></|DSML|parameter>
@@ -141,9 +182,28 @@ function buildConcreteToolExamples(toolNames = []) {
 </|DSML|tool_calls>`);
   }
 
-  if (lowerNames.includes('ask_followup_question') || lowerNames.includes('ask_question')) {
-    const qTool = toolNames.find(n => ['ask_followup_question', 'ask_question'].includes(n.toLowerCase())) || 'ask_followup_question';
-    examples.push(`Example D — Ask User a Question ("${qTool}"):
+  // 4. Search tools
+  if (lowerNames.includes('glob')) {
+    examples.push(`Example D — Find Files ("glob"):
+<|DSML|tool_calls>
+  <|DSML|invoke name="glob">
+    <|DSML|parameter name="pattern"><![CDATA[**/*.rs]]></|DSML|parameter>
+  </|DSML|invoke>
+</|DSML|tool_calls>`);
+  }
+  if (lowerNames.includes('grep')) {
+    examples.push(`Example E — Search Content ("grep"):
+<|DSML|tool_calls>
+  <|DSML|invoke name="grep">
+    <|DSML|parameter name="pattern"><![CDATA[fn main]]></|DSML|parameter>
+  </|DSML|invoke>
+</|DSML|tool_calls>`);
+  }
+
+  // 5. Question tools
+  if (lowerNames.includes('ask_followup_question') || lowerNames.includes('ask_question') || lowerNames.includes('question')) {
+    const qTool = toolNames.find(n => ['ask_followup_question', 'ask_question', 'question'].includes(n.toLowerCase())) || 'ask_followup_question';
+    examples.push(`Example F — Ask User a Question ("${qTool}"):
 <|DSML|tool_calls>
   <|DSML|invoke name="${qTool}">
     <|DSML|parameter name="question"><![CDATA[Which tech stack would you prefer?]]></|DSML|parameter>
@@ -211,12 +271,21 @@ RULES:
 6) ARRAY PARAMETERS: For arrays, repeat <item>...</item> children inside the parameter (e.g. commands: <item><![CDATA[cmd1]]></item><item><![CDATA[cmd2]]></item>).
 7) OBJECT PARAMETERS: For objects, use nested XML elements inside the parameter body.
 8) Numbers, booleans, and null stay plain text (e.g. <|DSML|parameter name="count">10</|DSML|parameter>).
-9) TAKE ACTION IMMEDIATELY: When the user asks you to build, create, or modify code, start coding immediately. Make sensible defaults (e.g. create a dedicated project folder in the workspace) and output the tool call NOW.
-10) COMPLETE FILES IN ONE CALL: When creating a new file or writing code, ALWAYS write the COMPLETE, fully functional file in ONE single tool call from start to end. Never chunk files, never do "Part 1 now, Part 2 later", and never leave placeholders like "// TODO" or "// ===PART2===". There is NO 6000-character limit.
-11) NEVER STALL OR OUTLINE UNEXECUTED PLANS: NEVER say "I will build...", "Quick plan before I start...", or "One decision needed from you:" without outputting the corresponding tool call in the EXACT SAME message. If you state a plan, you MUST execute step 1 immediately in this turn.
-12) NEVER ASK QUESTIONS IN PLAIN TEXT: If you need user confirmation or options, invoke the question tool (e.g. ask_followup_question or ask_question) with question and selectable options.
+9) TAKE ACTION IMMEDIATELY: When the user asks you to build, create, modify code, or run a command, start immediately. Output the tool call NOW.
+10) COMPLETE FILES IN ONE CALL: When creating a new file or writing code, ALWAYS write the COMPLETE, fully functional file in ONE single tool call from start to end. Never chunk files, never do "Part 1 now, Part 2 later", and never leave placeholders like "// TODO".
+11) NEVER STALL OR OUTLINE UNEXECUTED PLANS: NEVER say "I will build...", "Quick plan before I start...", or "Running tests..." without outputting the corresponding tool call in the EXACT SAME message. If you state a step, you MUST execute it immediately.
+12) NEVER ASK QUESTIONS IN PLAIN TEXT: If you need user confirmation or options, invoke the question tool (e.g. ask_followup_question, ask_question, or question) with question and selectable options.
 13) STOP GENERATION: Stop immediately after </|DSML|tool_calls>. Never fabricate simulated tool outputs or hallucinate results.
-14) Compatibility note: The runtime also accepts canonical <tool_calls> / <invoke> / <parameter> tags and standard JSON tool calls, but the DSML-prefixed format with CDATA above is the recommended standard.
+14) STRICT PROHIBITION ON COMMAND SIMULATION & TERMINAL ROLEPLAY:
+    You are an AI connected to an automated execution environment with tools. You DO NOT have an interactive terminal in the chat bubble.
+    - NEVER type "$ <command>", "% <command>", or simulate command execution in chat.
+    - NEVER fabricate or simulate compiler outputs (e.g. "Compiling...", "Finished test..."), test results, exit codes, or terminal logs.
+    - The chat window CANNOT execute commands. Commands ONLY run on the user's system if you output the tool call: <|DSML|invoke name="bash"> or <|DSML|invoke name="execute_command">.
+    - If you output "$ <command>" or markdown shell blocks in chat instead of invoking the tool, NOTHING WILL RUN and the user will see a failure.
+15) STRICT PROHIBITION ON PRINTING CODE BLOCKS IN CHAT INSTEAD OF SAVING:
+    - When tools like write, edit, editor, or write_to_file are available, NEVER output markdown code blocks (e.g. \`\`\`rust or \`\`\`js) for the user to copy-paste.
+    - You MUST write or edit the file directly on disk using the appropriate tool call.
+16) Compatibility note: The runtime also accepts canonical <tool_calls> / <invoke> / <parameter> tags and standard JSON tool calls, but the DSML-prefixed format with CDATA above is the recommended standard.
 
 PARAMETER SHAPES:
 - string => <|DSML|parameter name="x"><![CDATA[value]]></|DSML|parameter>
@@ -236,6 +305,17 @@ Wrong 3 — Missing opening wrapper:
   </|DSML|tool_calls>
 Wrong 4 — Empty or placeholder parameters:
   <|DSML|parameter name="commands"></|DSML|parameter>
+Wrong 5 — Simulating terminal / running command in chat prose:
+  $ . "$HOME/.cargo/env" && cargo test 2>&1
+  Compiling ratchet-crypto v0.1.0 ...
+  All 7 unit tests pass.
+  [FORBIDDEN! You must emit <|DSML|invoke name="bash"> instead!]
+Wrong 6 — Printing code in chat instead of saving it:
+  Here is the code for src/main.rs:
+  \`\`\`rust
+  fn main() { ... }
+  \`\`\`
+  [FORBIDDEN! You must emit <|DSML|invoke name="write"> or <|DSML|invoke name="editor"> instead!]
 
 ${examplesBlock}`;
 }
@@ -368,7 +448,13 @@ export function buildPromptWithTools({ messages = [], tools = [] }) {
   }
 
   if (hasTools) {
-    sections.push('[FINAL DIRECTIVE: If an action, file operation, command, or question is needed, output the <|DSML|tool_calls> block NOW with <![CDATA[...]]> parameter values and STOP immediately. Complete files in one single pass. NEVER output a plan without emitting the tool call.]');
+    sections.push(`[CRITICAL ACTION MANDATE — MUST EXECUTE TOOLS NOW]:
+1. If a terminal command needs to run (e.g. bash, cargo, npm, test, git, python, ls):
+   You MUST output <|DSML|invoke name="bash"> (or the active command tool) NOW.
+   DO NOT simulate command execution, DO NOT type "$ <command>", and DO NOT fabricate terminal logs.
+2. If a file needs to be created or modified (write, edit, editor):
+   You MUST output the tool call NOW. DO NOT print markdown code blocks in chat.
+3. Output <|DSML|tool_calls> IMMEDIATELY with <![CDATA[...]]> parameter values and STOP generation.`);
   }
 
   return sections.join('\n\n---\n\n');

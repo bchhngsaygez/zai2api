@@ -9,9 +9,11 @@
     "tunnel": "cloudflared tunnel --url http://127.0.0.1:3000",
     "login": "node src/cli/login.js",
     "subagent": "node src/cli/runSubagent.js",
+    "test": "node tests/testDs2apiParser.js && node tests/testOpenCodeToolCalling.js && node tests/testClineCompatibility.js",
     "test:chat": "node tests/testChatCompletion.js",
     "test:tools": "node tests/testToolCalling.js",
     "test:parser": "node tests/testDs2apiParser.js",
+    "test:opencode": "node tests/testOpenCodeToolCalling.js",
     "test:live": "node tests/testCloakControllerLive.js",
     "test:subagent": "node tests/testSubagent.js",
     "download:browser": "node src/cli/downloadBrowser.js"
