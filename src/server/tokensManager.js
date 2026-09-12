@@ -10,7 +10,6 @@ const ENV_FILE = path.resolve(config.projectRoot, '.env');
 class TokensManager {
   constructor() {
     this.tokens = [];
-    this.autoRotationEnabled = true;
     this.init();
   }
 
@@ -154,7 +153,7 @@ class TokensManager {
     }
 
     const nextToken = this.tokens[nextIndex];
-    console.log(`[TokensManager] Auto-rotating active token from index ${currentIndex} to "${nextToken.label}" (Reason: ${reason})...`);
+    console.log(`[TokensManager] Switching active token from index ${currentIndex} to "${nextToken.label}" (Reason: ${reason})...`);
 
     // Switch active state
     this.tokens.forEach((t, idx) => { t.active = (idx === nextIndex); });

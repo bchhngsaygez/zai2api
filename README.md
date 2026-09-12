@@ -40,7 +40,7 @@ High-performance, OpenAI-compatible proxy (`/v1/chat/completions`) for Z.ai web 
   - **Multi-Format XML Parser & Fallback**: Retains backward-compatibility for canonical `<tool_calls>`, `<tool_call>`, `<editor>`, `<write_to_file>`, and JSON blocks.
   - **Missing Argument & Hallucination Repair**: Resolves file paths from conversation history if omitted by the model; truncates simulated tool results.
 - **Route-Based IPC Stream Bridge**: Intercepts SSE stream chunks directly through same-origin routes without relying on brittle console telemetry or global bindings.
-- **Automatic Token Rotation (Anti-Rate-Limit)**: Automatically detects HTTP 429/402 quota exhaustion and DOM error banners, marks tokens with a cooldown timer, and rotates seamlessly to the next available token in `tokens.json` without aborting active client requests.
+- **Token & Session Management**: Seamlessly manage accounts and switch between authenticated tokens or guest mode via the Web Studio dashboard.
 - **"Money Saved" Stats Tracking**: Real-time persistent usage statistics (`stats.json`) calculating tokens, requests, and estimated money saved compared to frontier models ($3/1M prompt, $15/1M completion).
 - **Thinking Mode**: Supports `low`, `high`, and `max` reasoning efforts, streaming thinking traces via `reasoning_content`.
 - **Low RAM Footprint (< 800MB)**: Lean Chromium flags, 16MB memory cache cap, zero-bfcache, and decorative image blocking.

@@ -115,11 +115,7 @@ async function refreshStats() {
 
     const badgeEl = document.getElementById('stats-rotation-badge');
     if (badgeEl) {
-      if (data.rotationsCount > 0) {
-        badgeEl.textContent = `${data.rotationsCount} ROTATIONS`;
-      } else {
-        badgeEl.textContent = 'AUTO-ROTATION ON';
-      }
+      badgeEl.textContent = data.activeTokenLabel === 'Guest Mode' ? 'GUEST' : 'ACTIVE';
     }
   } catch (err) {
     console.debug('Failed to refresh stats:', err.message);

@@ -12,7 +12,6 @@ statsRouter.get(['/api/stats', '/v1/stats'], (req, res) => {
       success: true,
       ...stats,
       activeTokenLabel: activeObj ? activeObj.label : 'Guest Mode',
-      autoRotationEnabled: tokensManager.autoRotationEnabled,
     });
   } catch (err) {
     res.status(500).json({ error: { message: err.message } });
