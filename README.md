@@ -1,14 +1,14 @@
 # zai2api
 
 <p align="left">
-  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node.js-%3E%3D22.0.0-339933?logo=node.js&logoColor=white" alt="Node.js Version"></a>
-  <a href="https://github.com/apify/camoufox-js"><img src="https://img.shields.io/badge/engine-Camoufox%20(Gecko)-E66000?logo=firefox-browser&logoColor=white" alt="Engine"></a>
+  <a href="https://nodejs.org/"><img src="https://img.shields.io/badge/node.js-%3E%3D20.0.0-339933?logo=node.js&logoColor=white" alt="Node.js Version"></a>
+  <a href="https://github.com/bchhngsaygez/zai2api"><img src="https://img.shields.io/badge/engine-CloakBrowser%20(Chromium)%20%26%20Camoufox-4285F4?logo=google-chrome&logoColor=white" alt="Engine"></a>
   <a href="#api-endpoints"><img src="https://img.shields.io/badge/API-OpenAI%20Compatible-412991?logo=openai&logoColor=white" alt="OpenAI Compatible"></a>
   <a href="#docker-deployment"><img src="https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white" alt="Docker Ready"></a>
   <img src="https://img.shields.io/badge/license-MIT-gray.svg" alt="License">
 </p>
 
-High-performance, OpenAI-compatible proxy (`/v1/chat/completions`) for Z.ai web chat (GLM-5.3-Flash / GLM-5.3) powered by a stealth Gecko browser engine (Camoufox). Engineered for coding agents like Cline and Cursor with full tool-calling support, low RAM consumption, and zero TLS fingerprinting blocks.
+High-performance, OpenAI-compatible proxy (`/v1/chat/completions`) for Z.ai web chat (GLM-5.3-Flash / GLM-5.3) powered by stealth browser engines (**CloakBrowser** Chromium by default, optional **Camoufox** Gecko). Engineered for coding agents like Cline and Cursor with DS2API attention-aligned tool calling, low RAM consumption, and zero TLS fingerprinting blocks.
 
 ---
 
@@ -309,12 +309,18 @@ Install Tailscale on both your VPS and your local machine. You can then connect 
   ```bash
   pkill -f "node src/index.js"
   ```
-- **Camoufox profile locked**: Stale browser process detected. Stop all instances:
+- **Browser profile locked**: Stale browser processes or crash locks detected. Stop running instances:
   ```bash
   pkill -f "node src/index.js"
+  pkill -f cloak
+  pkill -f chrome
   pkill -f camoufox
+  # Remove Chromium locks
+  rm -f user-data-cloak/SingletonLock user-data-cloak/SingletonSocket user-data-cloak/SingletonCookie
+  # Remove Firefox locks (if using Camoufox)
   rm -f user-data-camoufox/lock user-data-camoufox/.parentlock
   ```
+- **npm install peer dependency warnings**: `.npmrc` is pre-configured with `legacy-peer-deps=true` and `ignore-scripts=true`. Simply run `npm install` directly without `--force`.
 
 ---
 
