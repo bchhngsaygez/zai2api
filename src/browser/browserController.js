@@ -373,10 +373,46 @@ export class BrowserController extends EventEmitter {
         '请求过于频繁',
         '429'
       ];
-      const text = document.body ? document.body.innerText.toLowerCase() : '';
-      for (const kw of errorKeywords) {
-        if (text.includes(kw)) {
-          return kw;
+
+      // Scoped alert containers only. Do NOT search document.body.innerText!
+      // Otherwise user prompts or AI output discussing rate limits will cause false positive aborts.
+      const alertSelectors = [
+        '[role="alert"]',
+        '.toast[data-type="error"]',
+        '[data-sonner-toast][data-type="error"]',
+        '[data-sonner-toast]',
+        '.ant-message-error',
+        '.ant-notification-notice-error',
+        '.alert-error',
+        '.toast-error',
+        '[data-state="open"][role="dialog"]',
+        '.modal.error'
+      ];
+
+      for (const sel of alertSelectors) {
+        const elements = document.querySelectorAll(sel);
+        for (const el of elements) {
+          // Explicitly exclude user chat inputs, forms, and message history
+          if (
+            el.closest('#chat-input') ||
+            el.closest('form') ||
+            el.closest('.chat-user') ||
+            el.closest('.chat-assistant') ||
+            el.closest('[data-message-id]') ||
+            el.closest('pre') ||
+            el.closest('code')
+          ) {
+            continue;
+          }
+
+          const text = (el.innerText || el.textContent || '').toLowerCase().trim();
+          if (!text) continue;
+
+          for (const kw of errorKeywords) {
+            if (text.includes(kw)) {
+              return kw;
+            }
+          }
         }
       }
       return null;
@@ -541,11 +577,11 @@ export class BrowserController extends EventEmitter {
       }, config.peakHourTtftMs);
     }
 
-    // DOM Error Sniffing Interval
+    // DOM Error Sniffing Interval (only active before stream begins)
     domCheckInterval = setInterval(async () => {
-      if (isCompleted) return;
+      if (isCompleted || firstTokenReceived) return;
       const domError = await this.checkDomError();
-      if (domError && !isCompleted) {
+      if (domError && !isCompleted && !firstTokenReceived) {
         console.warn(`[Browser] DOM error banner detected: "${domError}"`);
         cleanup();
 
@@ -664,21 +700,56 @@ export class BrowserController extends EventEmitter {
       await this.page.waitForSelector(selectors.chatInput, { timeout: 10000 });
       await this.page.fill(selectors.chatInput, prompt);
 
+      // Explicitly dispatch input and change events to ensure Svelte bindings activate
+      await this.page.evaluate((sel) => {
+        const input = document.querySelector(sel.chatInput);
+        if (input) {
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }, selectors).catch(() => {});
+
       await new Promise(r => setTimeout(r, 400));
       await this.dismissModals();
 
       // 2. Click send button via DOM click or fallback to keyboard Enter
-      await this.page.waitForSelector(selectors.sendMessageButton, { timeout: 5000 });
-      const clicked = await this.page.evaluate((sel) => {
-        const btn = document.querySelector(sel.sendMessageButton);
-        if (btn && !btn.disabled && !btn.classList.contains('disabled')) {
-          btn.click();
-          return true;
-        }
-        return false;
-      }, selectors);
+      let clicked = false;
+      const sendBtn = await this.page.waitForSelector(selectors.sendMessageButton, { timeout: 2000 }).catch(() => null);
+      if (sendBtn) {
+        clicked = await this.page.evaluate((sel) => {
+          const btn = document.querySelector(sel.sendMessageButton);
+          if (btn && !btn.disabled && !btn.classList.contains('disabled')) {
+            btn.click();
+            return true;
+          }
+          return false;
+        }, selectors).catch(() => false);
+      }
 
       if (!clicked) {
+        // Fallback: try alternate button selectors directly in DOM
+        clicked = await this.page.evaluate(() => {
+          const candidates = [
+            '#send-message-button',
+            'button[type="submit"]',
+            'button[aria-label*="send" i]',
+            'button[aria-label*="发送" i]',
+            'form button:last-of-type',
+            'button.send-button'
+          ];
+          for (const s of candidates) {
+            const btn = document.querySelector(s);
+            if (btn && !btn.disabled && !btn.classList.contains('disabled')) {
+              btn.click();
+              return true;
+            }
+          }
+          return false;
+        }).catch(() => false);
+      }
+
+      if (!clicked) {
+        console.log('[Browser] Send button not clickable or not found, falling back to Enter key...');
         await this.page.focus(selectors.chatInput).catch(() => {});
         await this.page.keyboard.press('Enter').catch(() => {});
       }
