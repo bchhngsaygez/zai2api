@@ -4,6 +4,7 @@ node_modules/
 # User Data & Browser Profiles (CRITICAL - DO NOT COMMIT)
 user-data/
 user-data-camoufox/
+user-data-cloak/
 *.default-release/
 
 # Personal Secrets & Session Tokens (CRITICAL - DO NOT COMMIT)

@@ -29,16 +29,21 @@ High-performance, OpenAI-compatible proxy (`/v1/chat/completions`) for Z.ai web 
 ## Key Features
 
 - **OpenAI Compatible**: Drop-in endpoint for `/v1/chat/completions` supporting streaming (`text/event-stream`), non-streaming, and `/v1/models`.
-- **Camoufox Stealth Engine**: Bypasses Cloudflare Turnstile and Alibaba Cloud WAF without JA3/JA4 TLS fingerprint issues.
-- **Agent Tool Calling (Cline / Cursor)**:
-  - **Flat Parameter Auto-Grouping**: Handles models generating root-level tool arguments (`path`, `new_text`, `content`) for `editor` and `write_to_file`.
-  - **JSON Repair State Machine**: Automatically escapes raw newlines and control characters in multiline code blocks.
-  - **Multi-Format XML Parser**: Supports `<editor>`, `<write_to_file>`, `<execute_command>`, and `<invoke>`.
-  - **Hallucination Truncation**: Strips simulated tool results (`[Tool Result ...]`) to prevent model loops.
+- **Dual Stealth Engine Support**:
+  - **CloakBrowser (Default)**: Stealth Chromium with 73 C++ source patches, zero C++ compilation on Windows, lean memory footprint, and native Cloudflare bypass.
+  - **Camoufox (Optional)**: Stealth Gecko/Firefox engine for users preferring Firefox emulation (`BROWSER_ENGINE=camoufox`).
+- **DS2API Attention-Optimized Tool Calling**:
+  - **DSML Protocol**: Formats system prompts and tools into `<|DSML|tool_calls>`, `<|DSML|invoke>`, and `<|DSML|parameter>` aligned with GLM and DeepSeek attention priors.
+  - **CDATA Protection**: Uses `<![CDATA[...]]>` for all code, paths, and multiline content to prevent JSON escaping failures, raw newlines, and quote syntax errors.
+  - **Array `<item>` Parameter Coercion**: Parses `<item>...</item>` elements automatically into native JavaScript arrays (`commands`, `options`, `files`).
+  - **Multi-Turn History Alignment**: In-context tool calls and tool responses in previous conversation turns are re-rendered in aligned DSML to keep model attention intact.
+  - **Multi-Format XML Parser & Fallback**: Retains backward-compatibility for canonical `<tool_calls>`, `<tool_call>`, `<editor>`, `<write_to_file>`, and JSON blocks.
+  - **Missing Argument & Hallucination Repair**: Resolves file paths from conversation history if omitted by the model; truncates simulated tool results.
+- **Route-Based IPC Stream Bridge**: Intercepts SSE stream chunks directly through same-origin routes without relying on brittle console telemetry or global bindings.
 - **Automatic Token Rotation (Anti-Rate-Limit)**: Automatically detects HTTP 429/402 quota exhaustion and DOM error banners, marks tokens with a cooldown timer, and rotates seamlessly to the next available token in `tokens.json` without aborting active client requests.
 - **"Money Saved" Stats Tracking**: Real-time persistent usage statistics (`stats.json`) calculating tokens, requests, and estimated money saved compared to frontier models ($3/1M prompt, $15/1M completion).
 - **Thinking Mode**: Supports `low`, `high`, and `max` reasoning efforts, streaming thinking traces via `reasoning_content`.
-- **Low RAM Footprint (< 900MB)**: Single-process content mode (`dom.ipc.processCount: 1`), 16MB memory cache cap, zero-bfcache, and decorative image blocking.
+- **Low RAM Footprint (< 800MB)**: Lean Chromium flags, 16MB memory cache cap, zero-bfcache, and decorative image blocking.
 - **Web Studio Dashboard**: Edge-to-edge UI at `http://127.0.0.1:3000` with live stats ribbon, dark/light themes, token management, interactive playground, and live stdout terminal.
 - **Docker & Tunnel Ready**: Pre-built Dockerfile and 1-command public tunnel via Cloudflare (`npm run tunnel`).
 
@@ -69,11 +74,12 @@ Key environment variables:
 
 | Variable | Default | Description |
 | :--- | :---: | :--- |
+| `BROWSER_ENGINE` | `cloakbrowser` | Browser engine: `cloakbrowser` (Chromium, default) or `camoufox` (Gecko) |
 | `PORT` | `3000` | Server listening port |
 | `HOST` | `127.0.0.1` | Host address (`0.0.0.0` for Docker/LAN) |
 | `DEFAULT_MODEL` | `glm-5.3-flash` | Default model (`glm-5.3-flash`, `glm-5.3`, `glm-5.2`) |
 | `HEADLESS` | `true` | Run browser in headless mode |
-| `OPTIMIZE_RAM` | `true` | Low-memory profile (single process, 16MB cache cap) |
+| `OPTIMIZE_RAM` | `true` | Low-memory profile (lean Chromium flags, 16MB cache cap) |
 | `BLOCK_IMAGES` | `true` | Block image downloads to minimize RAM usage |
 | `ZAI_AUTH_TOKEN` | `""` | Optional Z.ai account JWT token (or set via Web UI) |
 

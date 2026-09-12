@@ -591,40 +591,162 @@ function parseToolCallTag(text, toolList = []) {
   return null;
 }
 
+function extractStandaloneCDATA(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  const m = raw.match(/^(?:<|〈)(?:!|！)\[CDATA\[([\s\S]*?)]](?:>|＞|〉)$/i);
+  return m ? m[1] : null;
+}
+
+export function parseMarkupParameterValue(bodyText, paramName = '') {
+  if (bodyText === undefined || bodyText === null) return '';
+  const trimmed = String(bodyText).trim();
+
+  // 1. Array parsing with <item>...</item>
+  const itemRegex = /<item>([\s\S]*?)<\/item>/gi;
+  const items = [];
+  let itemMatch;
+  while ((itemMatch = itemRegex.exec(trimmed)) !== null) {
+    items.push(parseMarkupParameterValue(itemMatch[1].trim(), 'item'));
+  }
+  if (items.length > 0) {
+    return items;
+  }
+
+  // 2. Standalone CDATA unwrapping
+  const standaloneCDATA = extractStandaloneCDATA(trimmed);
+  if (standaloneCDATA !== null) {
+    return standaloneCDATA;
+  }
+
+  // 3. Partial or embedded CDATA
+  const embeddedCDATA = trimmed.match(/(?:<|〈)(?:!|！)\[CDATA\[([\s\S]*?)]](?:>|＞|〉)/i);
+  if (embeddedCDATA && trimmed.startsWith(embeddedCDATA[0])) {
+    return embeddedCDATA[1];
+  }
+
+  const isTextParam = ['new_text', 'old_text', 'content', 'diff', 'code', 'script', 'command', 'path', 'url', 'query', 'message', 'text', 'instructions', 'instruction', 'raw', 'html', 'file', 'prompt', 'input'].includes(paramName?.toLowerCase());
+  const isHtmlDocument = /<!doctype\b|<html\b|<head\b|<body\b/i.test(trimmed);
+
+  // 4. Nested XML child elements (for structured object parameters, not code/text)
+  if (!isTextParam && !isHtmlDocument) {
+    const childTagRegex = /<([a-zA-Z0-9_\-]+)>([\s\S]*?)<\/\1>/gi;
+    let cMatch;
+    const childObj = {};
+    let childCount = 0;
+    while ((cMatch = childTagRegex.exec(trimmed)) !== null) {
+      childCount++;
+      childObj[cMatch[1]] = parseMarkupParameterValue(cMatch[2].trim(), cMatch[1]);
+    }
+    if (childCount > 0) {
+      return childObj;
+    }
+  }
+
+  // 5. Native JSON literals
+  if (trimmed === 'true') return true;
+  if (trimmed === 'false') return false;
+  if (trimmed === 'null') return null;
+  if (/^-?\d+(?:\.\d+)?$/.test(trimmed)) return Number(trimmed);
+  if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+    try { return JSON.parse(trimmed); } catch (e) {}
+  }
+
+  return trimmed;
+}
+
+export function normalizeDSMLMarkup(text) {
+  if (!text || typeof text !== 'string') return '';
+  return text
+    .replace(/<(?:\|?DSML\|?|[!！]?DSML[!！]?|dsml-)?tool[-_]?calls[^>]*>/gi, '<tool_calls>')
+    .replace(/<\/(?:\|?DSML\|?|[!！]?DSML[!！]?|dsml-)?tool[-_]?calls>/gi, '</tool_calls>')
+    .replace(/<(?:\|?DSML\|?|[!！]?DSML[!！]?|dsml-)?invoke\s+/gi, '<invoke ')
+    .replace(/<\/(?:\|?DSML\|?|[!！]?DSML[!！]?|dsml-)?invoke>/gi, '</invoke>')
+    .replace(/<(?:\|?DSML\|?|[!！]?DSML[!！]?|dsml-)?parameter\s+/gi, '<parameter ')
+    .replace(/<\/(?:\|?DSML\|?|[!！]?DSML[!！]?|dsml-)?parameter>/gi, '</parameter>');
+}
+
+/**
+ * Parses DSML-prefixed or canonical XML tool calls (<|DSML|tool_calls> / <tool_calls>).
+ */
+export function parseDSMLOrCanonicalToolCalls(text, toolList = []) {
+  if (!text || typeof text !== 'string') return null;
+
+  // Find index of first tool_calls or invoke
+  const firstIdx = text.search(/<(?:\|?DSML\|?|[!！]?DSML[!！]?|dsml-)?(?:tool[-_]?calls|invoke)\b/i);
+  if (firstIdx === -1) return null;
+
+  let norm = normalizeDSMLMarkup(text);
+
+  // Narrow repair: If closing </tool_calls> exists but opening <tool_calls> was omitted before <invoke>
+  if (norm.includes('</tool_calls>') && !norm.includes('<tool_calls>')) {
+    const invokePos = norm.indexOf('<invoke');
+    if (invokePos !== -1) {
+      norm = norm.slice(0, invokePos) + '<tool_calls>' + norm.slice(invokePos);
+    }
+  }
+
+  const calls = [];
+  const invokeRegex = /<invoke\s+name=["']([^"']+)["']>([\s\S]*?)<\/invoke>/gi;
+  let m;
+
+  while ((m = invokeRegex.exec(norm)) !== null) {
+    const toolName = m[1].trim();
+    const body = m[2];
+    const args = {};
+
+    const paramRegex = /<parameter\s+name=["']([^"']+)["']>([\s\S]*?)<\/parameter>/gi;
+    let pm;
+    let foundParam = false;
+    while ((pm = paramRegex.exec(body)) !== null) {
+      foundParam = true;
+      const pName = pm[1].trim();
+      args[pName] = parseMarkupParameterValue(pm[2], pName);
+    }
+
+    // If no <parameter> tags found, check if body is JSON or KV
+    if (!foundParam && body.trim()) {
+      try {
+        const parsedJson = JSON.parse(body.trim());
+        if (parsedJson && typeof parsedJson === 'object') {
+          Object.assign(args, parsedJson.arguments || parsedJson.parameters || parsedJson);
+        }
+      } catch (e) {
+        Object.assign(args, parseKvOrYaml(body));
+      }
+    }
+
+    calls.push({
+      id: `call_${crypto.randomBytes(8).toString('hex')}`,
+      type: 'function',
+      function: {
+        name: toolName,
+        arguments: JSON.stringify(args),
+      },
+    });
+  }
+
+  if (calls.length > 0) {
+    return {
+      toolCalls: calls,
+      toolCall: calls[0],
+      index: firstIdx,
+    };
+  }
+
+  return null;
+}
+
 /**
  * Parses XML-based tool call formats commonly used by Cline and agent frameworks:
- * 1. <invoke name="tool_name"><parameter name="...">val</parameter></invoke>
+ * 1. <|DSML|tool_calls> / <tool_calls> (DS2API format with CDATA and <item> array support)
  * 2. <tool_call>...</tool_call> (YAML, JSON, XML tags, or key-value format)
  * 3. Direct tool tags: <write_to_file><path>...</path><content>...</content></write_to_file>
  */
 function parseXmlToolCall(text, toolList = []) {
-  // 1. Match <invoke name="tool_name"> ... </invoke>
-  const invokeRegex = /<invoke\s+name=["']([^"']+)["']>([\s\S]*?)<\/invoke>/i;
-  const invokeMatch = text.match(invokeRegex);
-  if (invokeMatch) {
-    const toolName = invokeMatch[1].trim();
-    const body = invokeMatch[2];
-    const args = {};
-    const paramRegex = /<parameter\s+name=["']([^"']+)["']>([\s\S]*?)<\/parameter>/gi;
-    let pMatch;
-    let found = false;
-    while ((pMatch = paramRegex.exec(body)) !== null) {
-      found = true;
-      try { args[pMatch[1].trim()] = JSON.parse(pMatch[2].trim()); }
-      catch (e) { args[pMatch[1].trim()] = pMatch[2].trim(); }
-    }
-    if (!found) {
-      try { Object.assign(args, JSON.parse(body.trim())); }
-      catch (e) { args.input = body.trim(); }
-    }
-    return {
-      toolCall: {
-        id: `call_${crypto.randomBytes(8).toString('hex')}`,
-        type: 'function',
-        function: { name: toolName, arguments: JSON.stringify(args) },
-      },
-      index: invokeMatch.index,
-    };
+  // 1. Match DSML and canonical XML format (<|DSML|tool_calls> or <tool_calls>)
+  const dsmlResult = parseDSMLOrCanonicalToolCalls(text, toolList);
+  if (dsmlResult) {
+    return dsmlResult;
   }
 
   // 2. Match <tool_call> ... (supports JSON, XML, or Key-Value / Bare Params / YAML)
@@ -660,22 +782,24 @@ function parseXmlToolCall(text, toolList = []) {
       while ((cMatch = childRegex.exec(body)) !== null) {
         if (validParamNames.has(cMatch[1].toLowerCase())) {
           count++;
-          args[cMatch[1]] = cMatch[2].trim();
+          args[cMatch[1]] = parseMarkupParameterValue(cMatch[2].trim(), cMatch[1]);
         }
       }
       if (count === 0) {
         if (toolName.toLowerCase() === 'editor') {
-          args.new_text = body.trim();
+          args.new_text = parseMarkupParameterValue(body.trim(), 'new_text');
         } else {
-          args.content = body.trim();
+          args.content = parseMarkupParameterValue(body.trim(), 'content');
         }
       }
+      const tc = {
+        id: `call_${crypto.randomBytes(8).toString('hex')}`,
+        type: 'function',
+        function: { name: toolName, arguments: JSON.stringify(args) },
+      };
       return {
-        toolCall: {
-          id: `call_${crypto.randomBytes(8).toString('hex')}`,
-          type: 'function',
-          function: { name: toolName, arguments: JSON.stringify(args) },
-        },
+        toolCall: tc,
+        toolCalls: [tc],
         index: tagMatch.index,
       };
     }
@@ -697,17 +821,21 @@ export function parseResponse(rawText, tools = [], messages = []) {
 
   // Helper to clean preText of dangling unclosed tool tags
   const cleanPreText = (text) => {
-    return text.replace(/<(?:tool_call|tool-call)[^>]*>[\s\S]*$/i, '').trim();
+    return text
+      .replace(/<(?:\|?DSML\|?|[!！]?DSML[!！]?|dsml-)?tool[-_]?calls[^>]*>[\s\S]*$/i, '')
+      .replace(/<(?:tool_call|tool-call)[^>]*>[\s\S]*$/i, '')
+      .trim();
   };
 
   // 1. Check XML format first
   const xmlResult = parseXmlToolCall(trimmed, tools);
   if (xmlResult) {
     const preText = cleanPreText(trimmed.slice(0, xmlResult.index));
-    const normalizedToolCall = applyNormalizedToolCall(xmlResult.toolCall, tools, trimmed, messages);
+    const rawCalls = xmlResult.toolCalls || (xmlResult.toolCall ? [xmlResult.toolCall] : []);
+    const normalizedCalls = rawCalls.map(tc => applyNormalizedToolCall(tc, tools, trimmed, messages));
     return {
       isToolCall: true,
-      toolCalls: [normalizedToolCall],
+      toolCalls: normalizedCalls,
       content: preText || null,
     };
   }

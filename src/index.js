@@ -10,7 +10,7 @@ async function startServer() {
   console.log(`Port:           ${config.port}`);
   console.log(`Host:           ${config.host}`);
   console.log(`Default Model:  ${config.defaultModel}`);
-  console.log(`Engine:         Camoufox (Gecko stealth)`);
+  console.log(`Engine:         ${config.browserEngine === 'cloakbrowser' ? 'CloakBrowser (Stealth Chromium)' : 'Camoufox (Gecko stealth)'}`);
   console.log(`Profile Dir:    ${config.userDataDir}`);
   console.log(`Headless:       ${config.headless}`);
   console.log('=====================================================\n');

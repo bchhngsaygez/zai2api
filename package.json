@@ -11,6 +11,8 @@
     "subagent": "node src/cli/runSubagent.js",
     "test:chat": "node tests/testChatCompletion.js",
     "test:tools": "node tests/testToolCalling.js",
+    "test:parser": "node tests/testDs2apiParser.js",
+    "test:live": "node tests/testCloakControllerLive.js",
     "test:subagent": "node tests/testSubagent.js"
   },
   "keywords": [
@@ -25,10 +27,11 @@
   "license": "MIT",
   "dependencies": {
     "camoufox-js": "^0.12.0",
+    "cloakbrowser": "^0.5.10",
     "cors": "^2.8.5",
     "dotenv": "^16.4.7",
     "express": "^4.21.2",
-    "playwright-core": "^1.60.0"
+    "playwright-core": "^1.63.0"
   },
   "engines": {
     "node": ">=20.0.0"

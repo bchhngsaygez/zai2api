@@ -1,5 +1,6 @@
-import { Camoufox } from 'camoufox-js';
 import { EventEmitter } from 'events';
+import path from 'path';
+import fs from 'fs';
 import { config } from '../config.js';
 import { selectors } from './selectors.js';
 import { getInjectedScript } from './pageHook.js';
@@ -17,56 +18,91 @@ export class BrowserController extends EventEmitter {
   async initialize() {
     if (this.browser && this.page && !this.page.isClosed()) return;
 
-    console.log('[Browser] Initializing Camoufox stealth browser controller...');
+    console.log(`[Browser] Initializing stealth browser controller using engine: ${config.browserEngine}...`);
     console.log(`[Browser] Profile directory: ${config.userDataDir}`);
     console.log(`[Browser] Headless mode: ${config.headless}`);
 
+    // Ensure user data directory exists
+    if (!fs.existsSync(config.userDataDir)) {
+      fs.mkdirSync(config.userDataDir, { recursive: true });
+    }
+
     // Clean up stale lock files if previous process crashed or was killed
     try {
-      const lockPath = path.join(config.userDataDir, 'lock');
-      const parentLockPath = path.join(config.userDataDir, '.parentlock');
-      if (fs.existsSync(lockPath)) fs.unlinkSync(lockPath);
-      if (fs.existsSync(parentLockPath)) fs.unlinkSync(parentLockPath);
+      const lockFiles = ['lock', '.parentlock', 'SingletonLock', 'SingletonCookie', 'SingletonSocket'];
+      for (const lf of lockFiles) {
+        const p = path.join(config.userDataDir, lf);
+        if (fs.existsSync(p)) fs.unlinkSync(p);
+      }
     } catch (e) {}
 
-    const firefoxUserPrefs = {};
-    if (config.optimizeRam) {
-      console.log('[Browser] RAM Optimization active: single-process mode, 16MB cache cap, zero-bfcache.');
-      Object.assign(firefoxUserPrefs, {
-        // Discard page cache when navigating back/forward (saves hundreds of MBs)
-        'browser.sessionhistory.max_entries': 2,
-        'browser.sessionhistory.max_total_viewers': 0,
-        // Restrict memory cache capacity to 16MB
-        'browser.cache.memory.enable': true,
-        'browser.cache.memory.capacity': 16384,
-        'browser.cache.disk.enable': false,
-        // Single content process mode: prevents Firefox from spawning multiple helper processes
-        'dom.ipc.processCount': 1,
-        'dom.ipc.processCount.webIsolated': 1,
-        // Restrict image decode cache
-        'image.mem.surfacecache.max_size_kb': 8192,
-        // Disable WebRTC overhead
-        'media.peerconnection.enabled': false,
-        // Disable telemetry and background workers
-        'toolkit.telemetry.enabled': false,
-        'datareporting.healthreport.uploadEnabled': false,
-        'experiments.supported': false,
-        // Faster JS GC
-        'javascript.options.mem.gc_frequency': 100,
+    if (config.browserEngine === 'camoufox') {
+      console.log('[Browser] Launching Camoufox (Firefox-based stealth)...');
+      const { Camoufox } = await import('camoufox-js');
+      const firefoxUserPrefs = {};
+      if (config.optimizeRam) {
+        console.log('[Browser] RAM Optimization active: single-process mode, 16MB cache cap, zero-bfcache.');
+        Object.assign(firefoxUserPrefs, {
+          'browser.sessionhistory.max_entries': 2,
+          'browser.sessionhistory.max_total_viewers': 0,
+          'browser.cache.memory.enable': true,
+          'browser.cache.memory.capacity': 16384,
+          'browser.cache.disk.enable': false,
+          'dom.ipc.processCount': 1,
+          'dom.ipc.processCount.webIsolated': 1,
+          'image.mem.surfacecache.max_size_kb': 8192,
+          'media.peerconnection.enabled': false,
+          'toolkit.telemetry.enabled': false,
+          'datareporting.healthreport.uploadEnabled': false,
+          'experiments.supported': false,
+          'javascript.options.mem.gc_frequency': 100,
+        });
+      }
+
+      this.browser = await Camoufox({
+        headless: config.headless,
+        user_data_dir: config.userDataDir,
+        block_images: config.blockImages,
+        block_webrtc: config.optimizeRam,
+        i_know_what_im_doing: true,
+        firefox_user_prefs: firefoxUserPrefs,
+      });
+    } else {
+      console.log('[Browser] Launching CloakBrowser (Chromium-based stealth with 73 C++ source patches)...');
+      const { launchPersistentContext } = await import('cloakbrowser');
+      const chromiumArgs = [
+        '--no-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-blink-features=AutomationControlled',
+      ];
+      if (config.optimizeRam) {
+        console.log('[Browser] RAM Optimization active: lean Chromium flags, disabling background tasks.');
+        chromiumArgs.push(
+          '--js-flags=--max-old-space-size=256',
+          '--disable-background-networking',
+          '--disable-background-timer-throttling',
+          '--disable-backgrounding-occluded-windows',
+          '--disable-breakpad',
+          '--disable-component-update',
+          '--disable-default-apps',
+          '--disable-domain-reliability',
+          '--disable-extensions',
+          '--disable-sync',
+          '--disable-translate',
+          '--no-first-run',
+          '--no-default-browser-check'
+        );
+      }
+
+      this.browser = await launchPersistentContext({
+        userDataDir: config.userDataDir,
+        headless: config.headless,
+        args: chromiumArgs,
       });
     }
 
-    this.browser = await Camoufox({
-      headless: config.headless,
-      user_data_dir: config.userDataDir,
-      block_images: config.blockImages,
-      block_webrtc: config.optimizeRam,
-      i_know_what_im_doing: true,
-      firefox_user_prefs: firefoxUserPrefs,
-    });
-
     this.browser.on('close', () => {
-      console.warn('[Browser] Camoufox browser closed!');
+      console.warn(`[Browser] ${config.browserEngine} browser closed!`);
       this.browser = null;
       this.page = null;
       this.isReady = false;
@@ -150,28 +186,35 @@ export class BrowserController extends EventEmitter {
       }
     });
 
-    // Expose stream chunk callbacks as backup
-    try {
-      await this.page.exposeFunction('__onZaiStreamChunk', (chunk) => {
-        if (this.currentStreamHandler) {
-          this.currentStreamHandler.handleChunk(chunk);
-        }
-      });
-    } catch (e) {}
 
-    try {
-      await this.page.exposeFunction('__onZaiStreamError', (err) => {
-        if (this.currentStreamHandler) {
-          this.currentStreamHandler.handleError(err);
-        }
-      });
-    } catch (e) {}
 
     const scriptContent = getInjectedScript(config.zaiAuthToken);
 
-    // HTML route injection for fetch hook (bypasses Firefox Xray wrappers)
+    // HTML route injection for fetch hook & route-based IPC bridge (works across Chromium & Firefox)
     await this.page.route('https://chat.z.ai/**', async (route) => {
       const req = route.request();
+      const url = req.url();
+
+      // Intercept bridge stream chunks directly in Node
+      if (url.includes('/__zai_bridge/chunk')) {
+        const data = req.postData();
+        if (this.currentStreamHandler && data) {
+          this.currentStreamHandler.handleChunk(data);
+        }
+        await route.fulfill({ status: 200, contentType: 'application/json', body: '{"ok":true}' });
+        return;
+      }
+
+      // Intercept bridge stream errors
+      if (url.includes('/__zai_bridge/error')) {
+        const err = req.postData();
+        if (this.currentStreamHandler && err) {
+          this.currentStreamHandler.handleError(err);
+        }
+        await route.fulfill({ status: 200, body: 'ok' });
+        return;
+      }
+
       if (req.resourceType() === 'document') {
         try {
           const response = await route.fetch();
@@ -192,6 +235,13 @@ export class BrowserController extends EventEmitter {
         await route.continue().catch(() => {});
       }
     });
+
+    // Block heavy static media assets if configured
+    if (config.blockImages) {
+      await this.page.route(/\.(?:png|jpg|jpeg|gif|webp|svg|ico|woff|woff2|ttf|eot)(?:\?.*)?$/i, (route) => {
+        return route.abort().catch(() => {});
+      }).catch(() => {});
+    }
 
     // Defense-in-depth init script
     try {

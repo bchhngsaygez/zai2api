@@ -8,10 +8,14 @@ dotenv.config();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(__dirname, '..');
 
+const browserEngine = (process.env.BROWSER_ENGINE || 'cloakbrowser').toLowerCase();
+const defaultDataDir = browserEngine === 'camoufox' ? './user-data-camoufox' : './user-data-cloak';
+
 export const config = {
   port: parseInt(process.env.PORT || '3000', 10),
   host: process.env.HOST || '127.0.0.1',
-  userDataDir: path.resolve(projectRoot, process.env.USER_DATA_DIR || './user-data-camoufox'),
+  browserEngine,
+  userDataDir: path.resolve(projectRoot, process.env.USER_DATA_DIR || defaultDataDir),
   headless: process.env.HEADLESS !== 'false',
   optimizeRam: process.env.OPTIMIZE_RAM !== 'false',
   blockImages: process.env.BLOCK_IMAGES === 'true' || process.env.OPTIMIZE_RAM !== 'false',
