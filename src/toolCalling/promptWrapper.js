@@ -1,3 +1,5 @@
+import crypto from 'crypto';
+
 /**
  * DS2API-aligned prompt wrapper for GLM models on Z.ai.
  * Formats tool definitions, schemas, execution rules, and conversation history
@@ -258,38 +260,97 @@ export function buildPromptWithTools({ messages = [], tools = [] }) {
 
   for (const msg of messages) {
     const role = msg.role || 'user';
-    let content = '';
+
+    // 1. Collect all tool calls: from msg.tool_calls OR from msg.content items with type === 'tool_use'
+    const toolCalls = [];
+    if (Array.isArray(msg.tool_calls)) {
+      toolCalls.push(...msg.tool_calls);
+    }
+
+    // 2. Extract tool_results, text, and tool_use from msg.content
+    let textContent = '';
+    const toolResults = [];
+
     if (Array.isArray(msg.content)) {
-      content = msg.content
-        .map(part => {
-          if (typeof part === 'string') return part;
-          if (part && typeof part === 'object') {
-            if (part.type === 'text') return part.text || '';
-            if (part.type === 'image_url') return '[Attached Image]';
+      const textParts = [];
+      for (const part of msg.content) {
+        if (typeof part === 'string') {
+          textParts.push(part);
+        } else if (part && typeof part === 'object') {
+          if (part.type === 'text') {
+            if (part.text) textParts.push(part.text);
+          } else if (part.type === 'image_url') {
+            textParts.push('[Attached Image]');
+          } else if (part.type === 'tool_use') {
+            // Anthropic/Cline style tool_use block
+            toolCalls.push({
+              id: part.id || `call_${crypto.randomBytes(8).toString('hex')}`,
+              type: 'function',
+              function: {
+                name: part.name || '',
+                arguments: typeof part.input === 'string' ? part.input : JSON.stringify(part.input || {}),
+              },
+            });
+          } else if (part.type === 'tool_result') {
+            // Anthropic/Cline style tool_result block
+            let resStr = '';
+            if (typeof part.content === 'string') {
+              resStr = part.content;
+            } else if (Array.isArray(part.content)) {
+              resStr = part.content
+                .map(item => {
+                  if (typeof item === 'string') return item;
+                  if (item && typeof item === 'object') {
+                    if (item.result !== undefined) return item.result;
+                    if (item.output !== undefined) return item.output;
+                    return JSON.stringify(item);
+                  }
+                  return String(item);
+                })
+                .join('\n');
+            } else if (part.content && typeof part.content === 'object') {
+              resStr = part.content.result !== undefined ? part.content.result :
+                       part.content.output !== undefined ? part.content.output :
+                       JSON.stringify(part.content);
+            }
+            toolResults.push({
+              id: part.tool_use_id || part.id || 'tool',
+              name: part.name || '',
+              content: resStr,
+              isError: !!part.is_error,
+            });
           }
-          return '';
-        })
-        .filter(Boolean)
-        .join('\n');
-    } else {
-      content = msg.content || '';
+        }
+      }
+      textContent = textParts.filter(Boolean).join('\n');
+    } else if (typeof msg.content === 'string') {
+      textContent = msg.content;
     }
 
     if (role === 'system') {
-      formattedMessages.push(`[System Context]\n${content}`);
-    } else if (role === 'user') {
-      formattedMessages.push(`User: ${content}`);
-    } else if (role === 'assistant') {
-      if (msg.tool_calls && Array.isArray(msg.tool_calls) && msg.tool_calls.length > 0) {
-        const dsmlCalls = msg.tool_calls.map(tc => renderToolCallToDSML(tc)).join('\n\n');
-        const preContent = content ? `${content}\n\n` : '';
-        formattedMessages.push(`Assistant: ${preContent}${dsmlCalls}`);
-      } else {
-        formattedMessages.push(`Assistant: ${content}`);
+      if (textContent) {
+        formattedMessages.push(`[System Context]\n${textContent}`);
       }
     } else if (role === 'tool') {
       const toolId = msg.tool_call_id || msg.name || 'tool';
-      formattedMessages.push(`[Real Tool Execution Result (${toolId})]:\n${content}`);
+      formattedMessages.push(`[Real Tool Execution Result (${toolId})]:\n${textContent}`);
+    } else if (role === 'assistant') {
+      const dsmlCalls = toolCalls.map(tc => renderToolCallToDSML(tc)).filter(Boolean).join('\n\n');
+      const parts = [];
+      if (textContent) parts.push(textContent);
+      if (dsmlCalls) parts.push(dsmlCalls);
+      if (parts.length > 0) {
+        formattedMessages.push(`Assistant: ${parts.join('\n\n')}`);
+      }
+    } else {
+      // User role (may contain tool results from previous turns or user prompts)
+      for (const tr of toolResults) {
+        const header = tr.isError ? `[Real Tool Execution Error (${tr.name || tr.id})]` : `[Real Tool Execution Result (${tr.name || tr.id})]`;
+        formattedMessages.push(`${header}:\n${tr.content}`);
+      }
+      if (textContent) {
+        formattedMessages.push(`User: ${textContent}`);
+      }
     }
   }
 

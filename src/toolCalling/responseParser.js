@@ -160,6 +160,10 @@ function parseKvOrYaml(bodyText, knownParams = []) {
 
     // Pattern 1: standard key: value
     const kvMatch = line.match(/^([a-zA-Z0-9_\-]+):\s*(.*)$/);
+    // Pattern 1b: attribute syntax key="value" or key='value' or key=value
+    const attrMatch = !kvMatch ? line.match(/^([a-zA-Z0-9_\-]+)=(?:["']([\s\S]*?)["']|(\S+))$/) : null;
+    // Pattern 1c: multiline attribute start key="...
+    const attrStartMatch = !kvMatch && !attrMatch ? line.match(/^([a-zA-Z0-9_\-]+)=["']([\s\S]*)$/) : null;
     // Pattern 2: bare parameter name on its own line (e.g. "path" or "new_text")
     const isBareParam = allKnownParams.includes(trimmedLine.toLowerCase());
 
@@ -169,6 +173,18 @@ function parseKvOrYaml(bodyText, knownParams = []) {
       }
       currentKey = kvMatch[1].trim();
       currentValue = kvMatch[2];
+    } else if (attrMatch && !trimmedLine.startsWith('<')) {
+      if (currentKey) {
+        saveParsedArg(args, currentKey, currentValue);
+      }
+      currentKey = attrMatch[1].trim();
+      currentValue = attrMatch[2] !== undefined ? attrMatch[2] : attrMatch[3] || '';
+    } else if (attrStartMatch && !trimmedLine.startsWith('<')) {
+      if (currentKey) {
+        saveParsedArg(args, currentKey, currentValue);
+      }
+      currentKey = attrStartMatch[1].trim();
+      currentValue = attrStartMatch[2];
     } else if (isBareParam) {
       if (currentKey) {
         saveParsedArg(args, currentKey, currentValue);
@@ -188,18 +204,26 @@ function parseKvOrYaml(bodyText, knownParams = []) {
 }
 
 function saveParsedArg(args, key, rawVal) {
-  const trimmed = rawVal.trim();
+  let trimmed = rawVal.trim();
   if (
     (trimmed.startsWith('[') && trimmed.endsWith(']')) ||
     (trimmed.startsWith('{') && trimmed.endsWith('}')) ||
     trimmed === 'true' || trimmed === 'false' ||
-    /^-?\d+(?:\.\d+)?$/.test(trimmed) ||
-    (trimmed.startsWith('"') && trimmed.endsWith('"'))
+    /^-?\d+(?:\.\d+)?$/.test(trimmed)
   ) {
     try {
       args[key] = JSON.parse(trimmed);
       return;
     } catch (e) {}
+  }
+  if ((trimmed.startsWith('"') && trimmed.endsWith('"') && trimmed.length >= 2) ||
+      (trimmed.startsWith("'") && trimmed.endsWith("'") && trimmed.length >= 2)) {
+    try {
+      args[key] = JSON.parse(trimmed);
+      return;
+    } catch (e) {
+      trimmed = trimmed.slice(1, -1);
+    }
   }
   args[key] = trimmed;
 }
@@ -234,7 +258,7 @@ export function findRecentFilePath(messages = [], rawText = '') {
       const msg = messages[i];
       if (!msg) continue;
 
-      // Check tool_calls in assistant message
+      // Check standard OpenAI tool_calls in assistant message
       if (msg.tool_calls && Array.isArray(msg.tool_calls)) {
         for (const tc of msg.tool_calls) {
           const fn = tc.function || {};
@@ -253,12 +277,41 @@ export function findRecentFilePath(messages = [], rawText = '') {
         }
       }
 
-      // Check message content
+      // Check Anthropic/Cline style tool_use and tool_result blocks in msg.content
+      if (Array.isArray(msg.content)) {
+        for (const part of msg.content) {
+          if (part && typeof part === 'object') {
+            if (part.type === 'tool_use' && part.input) {
+              const inp = part.input;
+              if (inp.path && isValidCandidatePath(inp.path)) return inp.path;
+              if (inp.file && isValidCandidatePath(inp.file)) return inp.file;
+              if (Array.isArray(inp.files) && inp.files[0]) {
+                const fp = typeof inp.files[0] === 'string' ? inp.files[0] : inp.files[0].path;
+                if (isValidCandidatePath(fp)) return fp;
+              }
+            }
+            if (part.type === 'tool_result' && part.content) {
+              const contentStr = typeof part.content === 'string' ? part.content : JSON.stringify(part.content);
+              const m = contentStr.match(/(?:edit|create|file|path):\s*(\/?[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]+)/i);
+              if (m && isValidCandidatePath(m[1])) return m[1].trim();
+            }
+          }
+        }
+      }
+
+      // Check message text content
       let contentStr = '';
       if (typeof msg.content === 'string') {
         contentStr = msg.content;
       } else if (Array.isArray(msg.content)) {
-        contentStr = msg.content.map(c => (typeof c === 'string' ? c : c.text || '')).join('\n');
+        contentStr = msg.content.map(c => {
+          if (typeof c === 'string') return c;
+          if (c && typeof c === 'object') {
+            if (c.text) return c.text;
+            if (c.type === 'tool_result' && c.content) return typeof c.content === 'string' ? c.content : JSON.stringify(c.content);
+          }
+          return '';
+        }).join('\n');
       }
 
       if (contentStr) {
@@ -270,6 +323,7 @@ export function findRecentFilePath(messages = [], rawText = '') {
 
         const contentMatches = [
           ...contentStr.matchAll(/"path"\s*:\s*"([^"]+)"/g),
+          ...contentStr.matchAll(/(?:oldTextPath|newTextPath|targetPath|Path)\s*=\s*["']([^"']+)["']/gi),
           ...contentStr.matchAll(/(?:create(?: a)? new file:?|at|in|file|path|to|folder|create|edit|inspect|read|write)\s+[`"']?(\/?[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]{1,10})[`"']?/gi),
           ...contentStr.matchAll(/[`"'](\/[a-zA-Z0-9_\-./]+\.[a-zA-Z0-9]{1,10})[`"']/gi),
           ...contentStr.matchAll(/(\/[a-zA-Z0-9_\-./]+(?:\/[a-zA-Z0-9_\-./]+)+\.[a-zA-Z0-9]{1,10})/g),
@@ -323,7 +377,9 @@ export function normalizeToolArgs(toolName, args = {}, tools = [], rawText = '',
   if (['editor', 'write_to_file', 'new_file', 'create_file', 'edit_file', 'replace_in_file'].includes(normToolName)) {
     // Normalise path
     if (!args.path) {
-      args.path = args.file_path || args.filePath || args.target_file || args.targetFile || args.file || args.filename || args.name;
+      args.path = args.file_path || args.filePath || args.target_file || args.targetFile ||
+                  args.target_path || args.targetPath || args.file || args.filename ||
+                  args.name || args.oldTextPath || args.old_text_path || args.newTextPath;
     }
     if (!args.path) {
       const fallbackPath = findRecentFilePath(messages, rawText);
@@ -332,11 +388,16 @@ export function normalizeToolArgs(toolName, args = {}, tools = [], rawText = '',
         args.path = fallbackPath;
       }
     }
+    if (!args.path) {
+      args.path = 'index.html'; // Safe fallback so Cline does not throw Zod validation error
+    }
 
     // Normalise new_text / content
     if (normToolName === 'editor') {
       if (args.new_text === undefined) {
-        args.new_text = args.content !== undefined ? args.content :
+        args.new_text = args.newText !== undefined ? args.newText :
+                        args.newtext !== undefined ? args.newtext :
+                        args.content !== undefined ? args.content :
                         args.text !== undefined ? args.text :
                         args.code !== undefined ? args.code :
                         args.file_text !== undefined ? args.file_text :
@@ -344,12 +405,30 @@ export function normalizeToolArgs(toolName, args = {}, tools = [], rawText = '',
                         args.input !== undefined ? args.input :
                         '';
       }
+      if (typeof args.new_text !== 'string') {
+        args.new_text = String(args.new_text || '');
+      }
+
+      if (args.old_text === undefined && args.oldText !== undefined) {
+        args.old_text = args.oldText;
+      }
+
+      delete args.newText;
+      delete args.newtext;
+      delete args.oldText;
+      delete args.oldTextPath;
+      delete args.newTextPath;
       delete args.content;
       delete args.file;
       delete args.filePath;
+      delete args.target_file;
+      delete args.targetFile;
+      delete args.target_path;
+      delete args.targetPath;
     } else {
       if (args.content === undefined) {
         args.content = args.new_text !== undefined ? args.new_text :
+                       args.newText !== undefined ? args.newText :
                        args.text !== undefined ? args.text :
                        args.code !== undefined ? args.code :
                        args.file_text !== undefined ? args.file_text :
@@ -357,6 +436,13 @@ export function normalizeToolArgs(toolName, args = {}, tools = [], rawText = '',
                        args.input !== undefined ? args.input :
                        '';
       }
+      if (typeof args.content !== 'string') {
+        args.content = String(args.content || '');
+      }
+      delete args.new_text;
+      delete args.newText;
+      delete args.file;
+      delete args.filePath;
     }
   }
 
@@ -364,6 +450,9 @@ export function normalizeToolArgs(toolName, args = {}, tools = [], rawText = '',
   if (normToolName === 'read_files') {
     if (!args.files || !Array.isArray(args.files) || args.files.length === 0) {
       let targetPath = args.path || args.file || args.filePath || args.target_file;
+      if (!targetPath && Array.isArray(args.paths) && args.paths[0]) {
+        targetPath = args.paths[0];
+      }
       if (!targetPath) {
         targetPath = findRecentFilePath(messages, rawText);
       }
@@ -378,6 +467,7 @@ export function normalizeToolArgs(toolName, args = {}, tools = [], rawText = '',
     }
     delete args.path;
     delete args.file;
+    delete args.paths;
   } else if (normToolName === 'read_file') {
     if (!args.path) {
       args.path = args.file || args.filePath || args.target_file;
@@ -421,6 +511,22 @@ export function normalizeToolArgs(toolName, args = {}, tools = [], rawText = '',
       } else if (args.cmd) {
         args.command = args.cmd;
       }
+    }
+  }
+
+  // 4. Skills tool (Cline skill execution)
+  if (normToolName === 'skills') {
+    if (!args.skill && args.name) {
+      args.skill = args.name;
+      delete args.name;
+    }
+    if (!args.skill && args.command) {
+      args.skill = args.command;
+      delete args.command;
+    }
+    if (!args.args && args.parameters) {
+      args.args = typeof args.parameters === 'string' ? args.parameters : JSON.stringify(args.parameters);
+      delete args.parameters;
     }
   }
 
@@ -522,12 +628,16 @@ function parseToolCallTag(text, toolList = []) {
       }
     }
 
-    // 3. Check if first line is simply the tool name: e.g. <tool_call>ask_question\n or <tool_call>editor>\n or bare <tool_call>read_files or <tool_call>run_commands]
+    // 3. Check if first line or leading token is the tool name: e.g. <tool_call>ask_question\n or <tool_call>editor>\n or <tool_call>editor newText="..."
     if (!toolName) {
-      const firstLineMatch = body.match(/^<?([a-zA-Z0-9_\-\.]+)[>\]:]*(?:\s*\n|\s*$)([\s\S]*)$/);
+      const firstLineMatch = body.match(/^<?([a-zA-Z0-9_\-\.]+)[>\]:]*(?:\s+([\s\S]*)$|\s*\n([\s\S]*)$|\s*$)/);
       if (firstLineMatch) {
-        toolName = firstLineMatch[1].trim();
-        body = firstLineMatch[2].trim();
+        const candidate = firstLineMatch[1].trim();
+        const candidateLower = candidate.toLowerCase();
+        if (!validParamNames.has(candidateLower)) {
+          toolName = candidate;
+          body = (firstLineMatch[2] !== undefined ? firstLineMatch[2] : firstLineMatch[3] || '').trim();
+        }
       }
     }
 
@@ -540,6 +650,21 @@ function parseToolCallTag(text, toolList = []) {
           body = JSON.stringify(parsedJson.arguments || parsedJson.parameters || parsedJson);
         }
       } catch (e) {}
+    }
+
+    // 5. If toolName still missing, infer from parameters in body
+    if (!toolName) {
+      if (body.includes('new_text') || body.includes('newText') || body.includes('old_text') || body.includes('oldText')) {
+        toolName = 'editor';
+      } else if (body.includes('commands') || body.includes('command')) {
+        toolName = 'run_commands';
+      } else if (body.includes('files') || body.includes('file')) {
+        toolName = 'read_files';
+      } else if (body.includes('question') || body.includes('options')) {
+        toolName = 'ask_followup_question';
+      } else if (toolList && toolList.length > 0) {
+        toolName = toolList[0].function?.name || toolList[0].name;
+      }
     }
 
     if (!toolName) continue;
@@ -671,18 +796,35 @@ export function normalizeDSMLMarkup(text) {
 export function parseDSMLOrCanonicalToolCalls(text, toolList = []) {
   if (!text || typeof text !== 'string') return null;
 
-  // Find index of first tool_calls or invoke
-  const firstIdx = text.search(/<(?:\|?DSML\|?|[!！]?DSML[!！]?|dsml-)?(?:tool[-_]?calls|invoke)\b/i);
+  // Find index of first tool_calls, invoke, or parameter
+  const firstIdx = text.search(/<(?:\|?DSML\|?|[!！]?DSML[!！]?|dsml-)?(?:tool[-_]?calls|invoke|parameter)\b/i);
   if (firstIdx === -1) return null;
 
   let norm = normalizeDSMLMarkup(text);
 
-  // Narrow repair: If closing </tool_calls> exists but opening <tool_calls> was omitted before <invoke>
+  // Narrow repair 1: If closing </tool_calls> exists but opening <tool_calls> was omitted before <invoke>
   if (norm.includes('</tool_calls>') && !norm.includes('<tool_calls>')) {
     const invokePos = norm.indexOf('<invoke');
     if (invokePos !== -1) {
       norm = norm.slice(0, invokePos) + '<tool_calls>' + norm.slice(invokePos);
     }
+  }
+
+  // Narrow repair 2: If parameters exist but <invoke name="..."> was omitted
+  if (!/<invoke\s+name=["']/i.test(norm) && /<parameter\s+name=["']/i.test(norm)) {
+    let inferredTool = 'editor';
+    if (/<parameter\s+name=["'](?:commands|command)["']/i.test(norm)) inferredTool = 'run_commands';
+    else if (/<parameter\s+name=["'](?:files|file)["']/i.test(norm)) inferredTool = 'read_files';
+    else if (/<parameter\s+name=["'](?:question|prompt)["']/i.test(norm)) inferredTool = 'ask_followup_question';
+    else if (/<parameter\s+name=["'](?:skill)["']/i.test(norm)) inferredTool = 'skills';
+    else if (toolList && toolList[0]) inferredTool = toolList[0].function?.name || toolList[0].name || 'editor';
+
+    const firstParamPos = norm.indexOf('<parameter');
+    let lastParamEnd = norm.lastIndexOf('</parameter>');
+    if (lastParamEnd !== -1) lastParamEnd += 12;
+    else lastParamEnd = norm.length;
+
+    norm = norm.slice(0, firstParamPos) + `<invoke name="${inferredTool}">` + norm.slice(firstParamPos, lastParamEnd) + '</invoke>' + norm.slice(lastParamEnd);
   }
 
   const calls = [];
