@@ -69,6 +69,15 @@ export class BrowserController extends EventEmitter {
       });
     } else {
       console.log('[Browser] Launching CloakBrowser (Chromium-based stealth with 73 C++ source patches)...');
+
+      // Ensure stealth binary is downloaded via resilient downloader with Range resume
+      try {
+        const { ensureCloakBrowser } = await import('../cli/downloadBrowser.js');
+        await ensureCloakBrowser();
+      } catch (dlErr) {
+        console.warn('[Browser] Resilient download notice:', dlErr.message);
+      }
+
       const { launchPersistentContext } = await import('cloakbrowser');
       const chromiumArgs = [
         '--no-sandbox',

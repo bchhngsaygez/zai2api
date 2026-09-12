@@ -83,11 +83,31 @@ Key environment variables:
 | `BLOCK_IMAGES` | `true` | Block image downloads to minimize RAM usage |
 | `ZAI_AUTH_TOKEN` | `""` | Optional Z.ai account JWT token (or set via Web UI) |
 
-### 3. Run Server
+### 3. Browser Setup & Run Server
+
+CloakBrowser automatically downloads its stealth Chromium binary (~535 MB) on first launch.
 
 ```bash
 npm start
 ```
+
+> 💡 **Slow or Unstable Connection?**
+> If the initial 535 MB download gets interrupted by your ISP, run our resilient downloader with **automatic HTTP Range resume**:
+> ```bash
+> npm run download:browser
+> ```
+> 
+> 💡 **Manual Download / IDM**:
+> You can also download the zip directly using your browser or download manager:
+> - **Windows**: Download [cloakbrowser-windows-x64.zip](https://github.com/CloakHQ/cloakbrowser/releases/download/chromium-v146.0.7680.177.5/cloakbrowser-windows-x64.zip) and extract it to:  
+>   `%USERPROFILE%\.cloakbrowser\chromium-146.0.7680.177.5\` (ensure `chrome.exe` is inside).
+> - **Linux**: Download [cloakbrowser-linux-x64.tar.gz](https://github.com/CloakHQ/cloakbrowser/releases/download/chromium-v146.0.7680.177.5/cloakbrowser-linux-x64.tar.gz) to `~/.cloakbrowser/chromium-146.0.7680.177.5/`.
+> 
+> 💡 **Skip Download via Local Chrome/Edge**:
+> To start immediately without downloading 535 MB, point `CLOAKBROWSER_BINARY_PATH` in `.env` to your installed browser:
+> ```env
+> CLOAKBROWSER_BINARY_PATH="C:\Program Files\Google\Chrome\Application\chrome.exe"
+> ```
 
 Access the Web Studio at **`http://127.0.0.1:3000`**.
 

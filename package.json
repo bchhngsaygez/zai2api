@@ -13,7 +13,8 @@
     "test:tools": "node tests/testToolCalling.js",
     "test:parser": "node tests/testDs2apiParser.js",
     "test:live": "node tests/testCloakControllerLive.js",
-    "test:subagent": "node tests/testSubagent.js"
+    "test:subagent": "node tests/testSubagent.js",
+    "download:browser": "node src/cli/downloadBrowser.js"
   },
   "keywords": [
     "zai",
