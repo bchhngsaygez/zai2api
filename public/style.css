@@ -323,7 +323,7 @@ body {
 }
 
 /* =====================================================
-   GLOBAL STATS & SAVINGS RIBBON
+   GLOBAL STATS RIBBON
    ===================================================== */
 .stats-ribbon {
   width: 100%;
@@ -359,10 +359,6 @@ body {
   font-family: var(--font-mono);
   color: var(--text);
   line-height: 1.15;
-}
-
-.savings-highlight .stats-value {
-  color: var(--status-ok-fg);
 }
 
 .stats-subtext {

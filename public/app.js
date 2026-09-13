@@ -76,7 +76,7 @@ function initTabs() {
 }
 
 /* =====================================================
-   2. Global Stats & Cost Savings
+   2. Global Usage Stats
    ===================================================== */
 let refreshStatsTimer = null;
 
@@ -86,9 +86,6 @@ async function refreshStats() {
     if (!res.ok) return;
     const data = await res.json();
     if (!data || !data.success) return;
-
-    const savedEl = document.getElementById('stats-saved-dollars');
-    if (savedEl) savedEl.textContent = data.formattedSaved || `$${(data.estimatedSavedDollars || 0).toFixed(2)}`;
 
     const tokensEl = document.getElementById('stats-total-tokens');
     if (tokensEl) {

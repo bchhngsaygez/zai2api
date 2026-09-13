@@ -225,7 +225,7 @@ chatRouter.post(['/v1/chat/completions', '/chat/completions'], async (req, res) 
                 res.write(`data: ${JSON.stringify(finishChunk)}\n\n`);
               }
 
-              // Record usage stats and cost savings
+              // Record usage stats
               try {
                 statsTracker.recordRequest({
                   promptText: wrappedPrompt,
@@ -320,7 +320,7 @@ chatRouter.post(['/v1/chat/completions', '/chat/completions'], async (req, res) 
         },
       };
 
-      // Record usage stats and cost savings
+      // Record usage stats
       try {
         statsTracker.recordRequest({
           promptText: wrappedPrompt,

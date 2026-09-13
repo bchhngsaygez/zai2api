@@ -4,11 +4,6 @@ import { config } from '../config.js';
 
 const STATS_FILE = path.resolve(config.projectRoot, 'stats.json');
 
-// Frontier model pricing benchmark (Claude 3.5 Sonnet / GPT-4o standard rates)
-// $3.00 per 1M input tokens, $15.00 per 1M output tokens
-const INPUT_PRICE_PER_TOKEN = 3.0 / 1_000_000;
-const OUTPUT_PRICE_PER_TOKEN = 15.0 / 1_000_000;
-
 class StatsTracker {
   constructor() {
     this.stats = {
@@ -16,7 +11,6 @@ class StatsTracker {
       totalPromptTokens: 0,
       totalCompletionTokens: 0,
       totalReasoningTokens: 0,
-      estimatedSavedDollars: 0,
       rotationsCount: 0,
       firstRecorded: new Date().toISOString(),
       lastUpdated: new Date().toISOString(),
@@ -29,6 +23,7 @@ class StatsTracker {
       if (fs.existsSync(STATS_FILE)) {
         const raw = fs.readFileSync(STATS_FILE, 'utf-8');
         const loaded = JSON.parse(raw);
+        delete loaded.estimatedSavedDollars;
         this.stats = { ...this.stats, ...loaded };
       } else {
         this.saveToFile();
@@ -62,13 +57,10 @@ class StatsTracker {
     const completionTokens = (usage && usage.completion_tokens) || this.estimateTokens(completionText);
     const reasoningTokens = (usage && usage.reasoning_tokens) || this.estimateTokens(reasoningText);
 
-    const costSaved = (promptTokens * INPUT_PRICE_PER_TOKEN) + (completionTokens * OUTPUT_PRICE_PER_TOKEN);
-
     this.stats.totalRequests += 1;
     this.stats.totalPromptTokens += promptTokens;
     this.stats.totalCompletionTokens += completionTokens;
     this.stats.totalReasoningTokens += reasoningTokens;
-    this.stats.estimatedSavedDollars = +(this.stats.estimatedSavedDollars + costSaved).toFixed(4);
     this.stats.lastUpdated = new Date().toISOString();
 
     this.saveToFile();
@@ -77,13 +69,11 @@ class StatsTracker {
       promptTokens,
       completionTokens,
       reasoningTokens,
-      costSaved,
-      totalSaved: this.stats.estimatedSavedDollars,
     };
   }
 
   /**
-   * Records an automatic token rotation event
+   * Records a token rotation event
    */
   recordRotation() {
     this.stats.rotationsCount += 1;
@@ -95,7 +85,6 @@ class StatsTracker {
     return {
       ...this.stats,
       totalTokens: this.stats.totalPromptTokens + this.stats.totalCompletionTokens,
-      formattedSaved: `$${this.stats.estimatedSavedDollars.toFixed(2)}`,
     };
   }
 
@@ -105,7 +94,6 @@ class StatsTracker {
       totalPromptTokens: 0,
       totalCompletionTokens: 0,
       totalReasoningTokens: 0,
-      estimatedSavedDollars: 0,
       rotationsCount: 0,
       firstRecorded: new Date().toISOString(),
       lastUpdated: new Date().toISOString(),
