@@ -265,17 +265,17 @@ TOOL CALL FORMAT — FOLLOW EXACTLY:
 RULES:
 1) Use the <|DSML|tool_calls> wrapper format.
 2) Put one or more <|DSML|invoke> entries under a single <|DSML|tool_calls> root.
-3) Put the tool name in the invoke name attribute: <|DSML|invoke name="TOOL_NAME">.
-4) CDATA MANDATE: ALL string values (especially code, scripts, file contents, commands, prompts, and paths) MUST use <![CDATA[...]]>. This prevents quote, backslash, and newline escaping bugs.
-5) Every top-level argument must be a <|DSML|parameter name="ARG_NAME">...</|DSML|parameter> node.
+3) Put the tool name in the invoke name attribute: <|DSML|invoke name="TOOL_NAME">. Use ONLY exact tool names defined in [AVAILABLE TOOLS]. Do not guess or invent synonyms.
+4) CDATA MANDATE: ALL string values (especially code, scripts, file contents, commands, prompts, and paths) MUST use <![CDATA[...]]>. This prevents quote, backslash, and newline escaping bugs. Every <![CDATA[ must be closed with ]]>.
+5) Every top-level argument must be a <|DSML|parameter name="ARG_NAME">...</|DSML|parameter> node matching the parameter names in the tool schema.
 6) ARRAY PARAMETERS: For arrays, repeat <item>...</item> children inside the parameter (e.g. commands: <item><![CDATA[cmd1]]></item><item><![CDATA[cmd2]]></item>).
 7) OBJECT PARAMETERS: For objects, use nested XML elements inside the parameter body.
 8) Numbers, booleans, and null stay plain text (e.g. <|DSML|parameter name="count">10</|DSML|parameter>).
 9) TAKE ACTION IMMEDIATELY: When the user asks you to build, create, modify code, or run a command, start immediately. Output the tool call NOW.
 10) COMPLETE FILES IN ONE CALL: When creating a new file or writing code, ALWAYS write the COMPLETE, fully functional file in ONE single tool call from start to end. Never chunk files, never do "Part 1 now, Part 2 later", and never leave placeholders like "// TODO".
 11) NEVER STALL OR OUTLINE UNEXECUTED PLANS: NEVER say "I will build...", "Quick plan before I start...", or "Running tests..." without outputting the corresponding tool call in the EXACT SAME message. If you state a step, you MUST execute it immediately.
-12) NEVER ASK QUESTIONS IN PLAIN TEXT: If you need user confirmation or options, invoke the question tool (e.g. ask_followup_question, ask_question, or question) with question and selectable options.
-13) STOP GENERATION: Stop immediately after </|DSML|tool_calls>. Never fabricate simulated tool outputs or hallucinate results.
+12) ZERO PRE-TOOL CHATTER: Keep commentary before tool calls to AT MOST 1 concise sentence (e.g. "Running cargo test to verify cryptography unit tests:"), or start immediately with <|DSML|tool_calls>. Never write multi-paragraph outlines, theoretical essays, or conversational filler before invoking tools.
+13) NEVER ASK QUESTIONS IN PLAIN TEXT: If you need user confirmation or options, invoke the question tool (e.g. ask_followup_question, ask_question, or question) with question and selectable options.
 14) STRICT PROHIBITION ON COMMAND SIMULATION & TERMINAL ROLEPLAY:
     You are an AI connected to an automated execution environment with tools. You DO NOT have an interactive terminal in the chat bubble.
     - NEVER type "$ <command>", "% <command>", or simulate command execution in chat.
@@ -285,7 +285,8 @@ RULES:
 15) STRICT PROHIBITION ON PRINTING CODE BLOCKS IN CHAT INSTEAD OF SAVING:
     - When tools like write, edit, editor, or write_to_file are available, NEVER output markdown code blocks (e.g. \`\`\`rust or \`\`\`js) for the user to copy-paste.
     - You MUST write or edit the file directly on disk using the appropriate tool call.
-16) Compatibility note: The runtime also accepts canonical <tool_calls> / <invoke> / <parameter> tags and standard JSON tool calls, but the DSML-prefixed format with CDATA above is the recommended standard.
+16) STOP GENERATION: Stop immediately after </|DSML|tool_calls>. Do NOT output conversational sign-offs, questions, or simulated outputs after the closing tag. Wait for the real tool result.
+17) Compatibility note: The runtime also accepts canonical <tool_calls> / <invoke> / <parameter> tags and standard JSON tool calls, but the DSML-prefixed format with CDATA above is the recommended standard.
 
 PARAMETER SHAPES:
 - string => <|DSML|parameter name="x"><![CDATA[value]]></|DSML|parameter>
@@ -316,6 +317,10 @@ Wrong 6 — Printing code in chat instead of saving it:
   fn main() { ... }
   \`\`\`
   [FORBIDDEN! You must emit <|DSML|invoke name="write"> or <|DSML|invoke name="editor"> instead!]
+Wrong 7 — Lengthy conversational monologue before emitting tools:
+  I'll start by analyzing your project files. Then I will inspect the configuration. Next I will run the tests. Finally I will summarize...
+  <|DSML|tool_calls>...
+  [FORBIDDEN! Emit the tool call immediately with zero or at most one short sentence of preamble!]
 
 ${examplesBlock}`;
 }
@@ -449,12 +454,14 @@ export function buildPromptWithTools({ messages = [], tools = [] }) {
 
   if (hasTools) {
     sections.push(`[CRITICAL ACTION MANDATE — MUST EXECUTE TOOLS NOW]:
-1. If a terminal command needs to run (e.g. bash, cargo, npm, test, git, python, ls):
+1. ZERO CHATTER: Output at most one concise sentence of intent, then open <|DSML|tool_calls> immediately.
+2. COMMANDS: If any shell command needs to run (e.g. bash, cargo, npm, test, git, python, ls):
    You MUST output <|DSML|invoke name="bash"> (or the active command tool) NOW.
    DO NOT simulate command execution, DO NOT type "$ <command>", and DO NOT fabricate terminal logs.
-2. If a file needs to be created or modified (write, edit, editor):
+3. FILES: If any file needs to be created or modified (write, edit, editor):
    You MUST output the tool call NOW. DO NOT print markdown code blocks in chat.
-3. Output <|DSML|tool_calls> IMMEDIATELY with <![CDATA[...]]> parameter values and STOP generation.`);
+4. EXACT SYNTAX: Use exact tool names and parameter names from [AVAILABLE TOOLS] with <![CDATA[...]]> values.
+5. STOP GENERATION: Stop immediately after </|DSML|tool_calls>. Wait for the real tool result.`);
   }
 
   return sections.join('\n\n---\n\n');
