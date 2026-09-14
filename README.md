@@ -14,15 +14,15 @@ High-performance, OpenAI-compatible proxy (`/v1/chat/completions`) for Z.ai web 
 
 ## Web Studio Preview
 
-`zai2api` includes a built-in, full-width minimalist dashboard at `http://127.0.0.1:3000` for managing tokens, testing completions, inspecting thought traces, and monitoring live stdout logs.
+`zai2api` includes a built-in, full-width minimalist dashboard at `http://127.0.0.1:3000` for managing OpenAI-compatible API keys, switching accounts/tokens, testing completions, inspecting thought traces, and monitoring live stdout logs.
 
 <p align="center">
-  <img src="assets/preview_chat.png" alt="Chat Interface & Thought Drawer" width="100%" />
+  <img src="assets/preview_apikeys.png" alt="API Keys Management Dashboard" width="100%" />
 </p>
 
-| API Playground & cURL Generator | Token Management & Live Logs |
+| Chat Studio & Thought Traces | API Playground & Token Manager |
 | :---: | :---: |
-| <img src="assets/preview_playground.png" width="100%" alt="API Playground" /> | <img src="assets/preview_tokens.png" width="100%" alt="Token Manager" /> |
+| <img src="assets/preview_chat.png" width="100%" alt="Chat Interface & Thought Drawer" /> | <img src="assets/preview_playground.png" width="100%" alt="API Playground" /> |
 
 ---
 
