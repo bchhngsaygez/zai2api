@@ -31,14 +31,45 @@ export function getInjectedScript(token = '') {
         const url = (args[0] && typeof args[0] === 'string') ? args[0] : (args[0]?.url || '');
 
         if (url.includes('/api/v2/chat/completions') || url.includes('/chat/completions')) {
-          if (response.status === 429 || response.status === 402) {
-            const errCode = 'RATE_LIMIT_HTTP_' + response.status;
+          if (!response.ok || response.status >= 400) {
+            let errorDetail = 'HTTP_' + response.status;
+            try {
+              const errClone = response.clone();
+              const errText = await errClone.text();
+              if (errText) {
+                errorDetail += ': ' + errText.slice(0, 300);
+              }
+            } catch (e) {}
+
+            const isQuotaOrAuth = response.status === 429 || response.status === 402 || response.status === 401 || response.status === 403;
+            const errCode = (isQuotaOrAuth ? 'QUOTA_OR_AUTH_HTTP_' : 'API_ERROR_HTTP_') + response.status + ' - ' + errorDetail;
             sendBridge('error', errCode);
             console.error('[ZAI_ERROR]:' + errCode);
             try { if (window.__onZaiStreamError) window.__onZaiStreamError(errCode); } catch (e) {}
+            return response;
           }
+
           try {
             const clone = response.clone();
+            const contentType = response.headers?.get('content-type') || '';
+
+            // Check if response returned JSON error instead of event-stream
+            if (contentType.includes('application/json')) {
+              (async () => {
+                try {
+                  const json = await clone.json();
+                  if (json && (json.error || (json.code !== undefined && json.code !== 0 && json.code !== 200))) {
+                    const msg = json.message || json.msg || json.error?.message || json.error || JSON.stringify(json);
+                    const errPayload = 'QUOTA_OR_API_JSON_ERROR: ' + msg;
+                    sendBridge('error', errPayload);
+                    console.error('[ZAI_ERROR]:' + errPayload);
+                    try { if (window.__onZaiStreamError) window.__onZaiStreamError(errPayload); } catch (e) {}
+                    return;
+                  }
+                } catch (e) {}
+              })();
+            }
+
             const reader = clone.body.getReader();
             const decoder = new TextDecoder();
 

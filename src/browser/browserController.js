@@ -461,6 +461,57 @@ export class BrowserController extends EventEmitter {
     }
   }
 
+  isQuotaOrRateLimitError(text) {
+    if (!text || typeof text !== 'string') return false;
+    const lower = text.toLowerCase();
+    const quotaKeywords = [
+      'quota',
+      'usage limit',
+      'rate limit',
+      'exceeded',
+      'limit reached',
+      'too many requests',
+      '429',
+      '402',
+      '401',
+      '403',
+      'unauthorized',
+      'insufficient',
+      'balance',
+      'credit',
+      'upgrade',
+      'subscribe',
+      'token expired',
+      'invalid token',
+      'login required',
+      'please log in',
+      'account restricted',
+      'account suspended',
+      'disabled',
+      'locked',
+      '额度',
+      '用完',
+      '用尽',
+      '超限',
+      '频繁',
+      '频率过高',
+      '次数已满',
+      '次数已用完',
+      '余额不足',
+      '请充值',
+      '权限不足',
+      '重新登录',
+      '登录过期',
+      'hết hạn',
+      'giới hạn',
+      'hạn mức',
+      'quota_or_auth_http_',
+      'rate_limit_http_',
+      'quota_or_api_json_error'
+    ];
+    return quotaKeywords.some(kw => lower.includes(kw));
+  }
+
   async checkDomError() {
     if (!this.page || this.page.isClosed()) return null;
     return await this.page.evaluate(() => {
@@ -475,13 +526,25 @@ export class BrowserController extends EventEmitter {
         'service is busy',
         'usage limit',
         'quota exceeded',
+        'quota',
         'rate limit',
         '请求过于频繁',
-        '429'
+        '频率过高',
+        '次数已满',
+        '次数已用完',
+        '额度已用完',
+        '额度不足',
+        '余额不足',
+        '超限',
+        'upgrade to continue',
+        'subscribe',
+        '429',
+        '402',
+        '401',
+        '403'
       ];
 
-      // Scoped alert containers only. Do NOT search document.body.innerText!
-      // Otherwise user prompts or AI output discussing rate limits will cause false positive aborts.
+      // 1. Scoped alert containers and toast notifications
       const alertSelectors = [
         '[role="alert"]',
         '.toast[data-type="error"]',
@@ -491,14 +554,14 @@ export class BrowserController extends EventEmitter {
         '.ant-notification-notice-error',
         '.alert-error',
         '.toast-error',
-        '[data-state="open"][role="dialog"]',
-        '.modal.error'
+        '.modal.error',
+        '.error-message',
+        '.error-notice'
       ];
 
       for (const sel of alertSelectors) {
         const elements = document.querySelectorAll(sel);
         for (const el of elements) {
-          // Explicitly exclude user chat inputs, forms, and message history
           if (
             el.closest('#chat-input') ||
             el.closest('form') ||
@@ -521,6 +584,27 @@ export class BrowserController extends EventEmitter {
           }
         }
       }
+
+      // 2. Check for blocking quota / upgrade paywall dialogs
+      const dialogSelectors = ['[role="dialog"]', '.modal', '[data-state="open"]'];
+      for (const dSel of dialogSelectors) {
+        const dialogs = document.querySelectorAll(dSel);
+        for (const dlg of dialogs) {
+          if (dlg.id === 'auth-modal' || dlg.id === 'security-modal' || dlg.id === 'edit-key-modal') continue;
+          const dlgText = (dlg.innerText || '').toLowerCase();
+          if (
+            dlgText.includes('quota') ||
+            dlgText.includes('usage limit') ||
+            dlgText.includes('upgrade') ||
+            dlgText.includes('subscribe') ||
+            dlgText.includes('额度') ||
+            dlgText.includes('次数')
+          ) {
+            return 'Modal dialog blocking chat: ' + dlgText.slice(0, 80);
+          }
+        }
+      }
+
       return null;
     }).catch(() => null);
   }
@@ -605,7 +689,17 @@ export class BrowserController extends EventEmitter {
     }
   }
 
-  async sendMessage({ prompt, model = config.defaultModel, thinkingMode = 'max', onDelta, onReasoning, onUsage, onDone, onError }) {
+  async sendMessage({
+    prompt,
+    model = config.defaultModel,
+    thinkingMode = 'max',
+    onDelta,
+    onReasoning,
+    onUsage,
+    onDone,
+    onError,
+    rotationAttempt = 0,
+  }) {
     await this.ensureReady();
     this.isBusy = true;
 
@@ -642,6 +736,58 @@ export class BrowserController extends EventEmitter {
       if (onError) onError(err);
     };
 
+    const handleAutoRotateAndRetry = async (reason) => {
+      if (firstTokenReceived || isCompleted) return false;
+
+      let tokensManager = null;
+      try {
+        const mod = await import('../server/tokensManager.js');
+        tokensManager = mod.tokensManager;
+      } catch (e) {}
+
+      if (!tokensManager) return false;
+
+      const canRotate = tokensManager.hasMultipleTokens ? tokensManager.hasMultipleTokens() : (tokensManager.tokens && tokensManager.tokens.length > 1);
+      const totalTokens = tokensManager.tokens ? tokensManager.tokens.length : 1;
+
+      if (canRotate && rotationAttempt < totalTokens) {
+        const currentToken = tokensManager.getActiveTokenObject ? tokensManager.getActiveTokenObject() : null;
+        console.warn(`[AutoRotate] Quota/token failure detected: "${reason}". Current token: "${currentToken?.label}". Initiating auto-rotation (attempt ${rotationAttempt + 1}/${totalTokens})...`);
+        isCompleted = true;
+        cleanup();
+
+        if (currentToken) {
+          tokensManager.markTokenRateLimited(currentToken.id, 30 * 60 * 1000);
+        }
+
+        const rotResult = await tokensManager.rotateToNextToken(`quota_exhausted: ${reason}`);
+        if (rotResult && rotResult.rotated) {
+          console.log(`[AutoRotate] Switched to "${rotResult.token.label}". Resetting session and retrying request...`);
+
+          if (onReasoning && config.streamReasoning) {
+            onReasoning(`\n[System Notice: Active token "${currentToken?.label || 'Account'}" reached quota limit. Automatically switched to "${rotResult.token.label}". Resuming...]\n\n`);
+          }
+
+          await this.ensureCleanSlate();
+
+          this.sendMessage({
+            prompt,
+            model,
+            thinkingMode,
+            onDelta,
+            onReasoning,
+            onUsage,
+            onDone,
+            onError,
+            rotationAttempt: rotationAttempt + 1,
+          });
+          return true;
+        }
+      }
+
+      return false;
+    };
+
     const resetIdleTimer = () => {
       if (idleTimer) clearTimeout(idleTimer);
       if (firstTokenReceived) {
@@ -657,11 +803,13 @@ export class BrowserController extends EventEmitter {
     // Request inactivity timeout safety guard (resets as long as tokens are arriving)
     const resetInactivityTimer = () => {
       if (timeoutTimer) clearTimeout(timeoutTimer);
-      timeoutTimer = setTimeout(() => {
+      timeoutTimer = setTimeout(async () => {
         if (fullAnswer.length > 0) {
           console.warn(`[Browser] Stream inactivity timeout after ${config.timeoutMs}ms. Finalizing with received content...`);
           finish();
         } else {
+          const rotated = await handleAutoRotateAndRetry(`Inactivity timeout after ${config.timeoutMs}ms with zero tokens`);
+          if (rotated) return;
           fail(new Error(`Z.ai response timed out after ${config.timeoutMs}ms of inactivity`));
         }
       }, config.timeoutMs);
@@ -692,6 +840,7 @@ export class BrowserController extends EventEmitter {
             onUsage,
             onDone,
             onError,
+            rotationAttempt,
           });
         }
       }, config.peakHourTtftMs);
@@ -703,14 +852,17 @@ export class BrowserController extends EventEmitter {
       const domError = await this.checkDomError();
       if (domError && !isCompleted && !firstTokenReceived) {
         console.warn(`[Browser] DOM error banner detected: "${domError}"`);
-        cleanup();
 
         // Check if error is related to quota or rate limits
-        const isRateLimit = ['usage limit', 'quota', 'rate limit', 'too many requests', '429', '频繁'].some(kw => domError.includes(kw));
-        if (isRateLimit) {
+        const isQuotaOrLimit = this.isQuotaOrRateLimitError(domError);
+        if (isQuotaOrLimit) {
+          const rotated = await handleAutoRotateAndRetry(`DOM error: ${domError}`);
+          if (rotated) return;
           fail(new Error(`Z.ai rate limit / quota exceeded: ${domError}`));
           return;
         }
+
+        cleanup();
 
         if (model !== config.fallbackModel) {
           if (onReasoning) {
@@ -725,6 +877,7 @@ export class BrowserController extends EventEmitter {
             onUsage,
             onDone,
             onError,
+            rotationAttempt,
           });
         } else {
           fail(new Error(`Z.ai server busy: ${domError}`));
@@ -806,6 +959,11 @@ export class BrowserController extends EventEmitter {
       },
       handleError: async (err) => {
         console.error('[Browser] Stream reported error:', err);
+        const isQuotaOrLimit = this.isQuotaOrRateLimitError(String(err));
+        if (isQuotaOrLimit && !firstTokenReceived) {
+          const rotated = await handleAutoRotateAndRetry(`Stream error: ${err}`);
+          if (rotated) return;
+        }
         fail(new Error(err));
       },
     };
@@ -818,6 +976,47 @@ export class BrowserController extends EventEmitter {
 
       // Clean up any dropdowns or backdrops left from model/thinking switch
       await this.dismissModals();
+
+      // Check if chat input is disabled due to quota or account restriction
+      const isInputDisabled = await this.page.evaluate((sel) => {
+        const input = document.querySelector(sel.chatInput);
+        if (!input) return false;
+        return input.disabled || input.readOnly || input.getAttribute('disabled') !== null;
+      }, selectors).catch(() => false);
+
+      if (isInputDisabled) {
+        console.warn('[Browser] Chat input is disabled (account may be restricted or out of quota).');
+        const rotated = await handleAutoRotateAndRetry('Chat input is disabled / locked');
+        if (rotated) return;
+      }
+
+      // Check for blocking paywall or quota dialog
+      const blockingDialog = await this.page.evaluate(() => {
+        const dialogs = document.querySelectorAll('[role="dialog"], .modal, [data-state="open"]');
+        for (const dlg of dialogs) {
+          if (dlg.id === 'auth-modal' || dlg.id === 'security-modal' || dlg.id === 'edit-key-modal') continue;
+          const txt = (dlg.innerText || '').toLowerCase();
+          if (
+            txt.includes('quota') ||
+            txt.includes('usage limit') ||
+            txt.includes('upgrade') ||
+            txt.includes('subscribe') ||
+            txt.includes('额度') ||
+            txt.includes('次数') ||
+            txt.includes('429') ||
+            txt.includes('402')
+          ) {
+            return txt.slice(0, 100);
+          }
+        }
+        return null;
+      }).catch(() => null);
+
+      if (blockingDialog) {
+        console.warn(`[Browser] Paywall/Quota dialog blocking chat: "${blockingDialog}"`);
+        const rotated = await handleAutoRotateAndRetry(`Blocking dialog: ${blockingDialog}`);
+        if (rotated) return;
+      }
 
       // 1. Enter prompt in textarea using resilient multi-stage setter
       await this.setChatInputValue(prompt);
@@ -870,6 +1069,16 @@ export class BrowserController extends EventEmitter {
           if (input) input.focus();
         }, selectors).catch(() => {});
         await this.page.keyboard.press('Enter').catch(() => {});
+
+        await new Promise(r => setTimeout(r, 600));
+        const valStill = await this.page.inputValue(selectors.chatInput).catch(() => '');
+        if (valStill && valStill.trim().length > 0) {
+          const domErr = await this.checkDomError();
+          if (domErr && this.isQuotaOrRateLimitError(domErr)) {
+            const rotated = await handleAutoRotateAndRetry(`Send blocked: ${domErr}`);
+            if (rotated) return;
+          }
+        }
       }
 
       console.log(`[Browser] Prompt dispatched to chat.z.ai (model: ${model}, thinking: ${thinkingMode}). Awaiting stream...`);

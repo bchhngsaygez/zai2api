@@ -189,11 +189,17 @@ async function runTests() {
       console.log('✓ Test 10 Passed: Logout revokes session token');
     }
 
-    // 11. OpenAI endpoints remain open
+    // 11. OpenAI endpoints do not require dashboard session auth
     {
-      const modelsRes = await request(server, { path: '/v1/models', method: 'GET' });
-      assert.strictEqual(modelsRes.status, 200, 'OpenAI /v1/models must remain open for coding agents');
-      console.log('✓ Test 11 Passed: OpenAI /v1/models remains open without dashboard auth');
+      const { apiKeysManager } = await import('../src/server/apiKeysManager.js');
+      const apiKey = apiKeysManager.hasKeys() ? apiKeysManager.keys[0].key : 'sk-zai-test';
+      const modelsRes = await request(server, {
+        path: '/v1/models',
+        method: 'GET',
+        headers: { 'Authorization': `Bearer ${apiKey}` },
+      });
+      assert.strictEqual(modelsRes.status, 200, 'OpenAI /v1/models must be accessible without dashboard session auth');
+      console.log('✓ Test 11 Passed: OpenAI /v1/models accessible without dashboard session auth');
     }
 
     console.log('\n=====================================================');

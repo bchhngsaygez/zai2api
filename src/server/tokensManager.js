@@ -265,7 +265,24 @@ class TokensManager {
     return { success: true, removedId: id };
   }
 
-  async refreshBrowserSession() {
+  hasMultipleTokens() {
+    return this.tokens.length > 1;
+  }
+
+  getAvailableTokensCount() {
+    const now = Date.now();
+    return this.tokens.filter(t => !t.rateLimitedUntil || t.rateLimitedUntil <= now).length;
+  }
+
+  async rotateOnQuotaExceeded(reason = 'quota_exhausted', cooldownMs = 30 * 60 * 1000) {
+    const current = this.getActiveTokenObject();
+    if (current) {
+      this.markTokenRateLimited(current.id, cooldownMs);
+    }
+    return await this.rotateToNextToken(reason);
+  }
+
+  async refreshBrowserSession(forceReload = true) {
     try {
       if (browserController && browserController.page && !browserController.page.isClosed()) {
         console.log('[TokensManager] Refreshing browser session with new active token...');
@@ -279,7 +296,19 @@ class TokensManager {
             localStorage.removeItem('auth_token');
           }
         }, token).catch(() => {});
-        await browserController.newChat().catch(() => {});
+
+        if (forceReload) {
+          console.log('[TokensManager] Reloading Z.ai web app to apply fresh token identity...');
+          await browserController.page.goto(config.targetUrl, {
+            waitUntil: 'domcontentloaded',
+            timeout: 30000,
+          }).catch(() => {});
+          await browserController.dismissModals().catch(() => {});
+          const { selectors } = await import('../browser/selectors.js');
+          await browserController.page.waitForSelector(selectors.chatInput, { timeout: 20000 }).catch(() => {});
+        } else {
+          await browserController.newChat().catch(() => {});
+        }
       }
     } catch (err) {
       console.warn('[TokensManager] Browser session refresh warning:', err.message);
