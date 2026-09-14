@@ -26,5 +26,6 @@ export const config = {
   zaiAuthToken: process.env.ZAI_AUTH_TOKEN || '',
   peakHourTtftMs: parseInt(process.env.PEAK_HOUR_TTFT_MS || '9000', 10),
   fallbackModel: process.env.FALLBACK_MODEL || 'glm-5.3-flash',
+  dashboardPassword: process.env.DASHBOARD_PASSWORD || 'admin',
   projectRoot,
 };

@@ -1,18 +1,280 @@
 // zai2api Studio Client Script
 // Minimalist Monochrome Black & White UI with Dark & Light Mode
 
+// 1. Fetch Interceptor: automatically attaches X-Dashboard-Token to API requests
+const originalFetch = window.fetch;
+window.fetch = async function(...args) {
+  let [resource, config = {}] = args;
+  const token = localStorage.getItem('zai_dashboard_token');
+
+  if (token) {
+    config = { ...config };
+    config.headers = {
+      ...(config.headers || {}),
+      'X-Dashboard-Token': token,
+    };
+  }
+
+  const response = await originalFetch(resource, config);
+
+  if (response.status === 401) {
+    const url = typeof resource === 'string' ? resource : resource?.url || '';
+    if (url.startsWith('/api/') || url.startsWith('/v1/tokens')) {
+      if (!url.includes('/api/auth/login') && !url.includes('/api/auth/status')) {
+        localStorage.removeItem('zai_dashboard_token');
+        if (typeof showAuthModal === 'function') {
+          showAuthModal('Session expired or unauthorized. Please enter your dashboard password.');
+        }
+      }
+    }
+  }
+
+  return response;
+};
+
+let isDashboardInitialized = false;
+
 document.addEventListener('DOMContentLoaded', () => {
   initTheme();
   initTabs();
-  initStats();
-  initTokens();
-  initChat();
-  initTesting();
-  initLogs();
+  initAuth();
 });
 
 /* =====================================================
-   0. Theme Management (Light & Dark Mode)
+   0. Dashboard Authentication & Security
+   ===================================================== */
+function getDashboardToken() {
+  return localStorage.getItem('zai_dashboard_token') || '';
+}
+
+function setDashboardToken(token) {
+  if (token) {
+    localStorage.setItem('zai_dashboard_token', token);
+  } else {
+    localStorage.removeItem('zai_dashboard_token');
+  }
+}
+
+function showAuthModal(errMsg = '') {
+  const modal = document.getElementById('auth-modal');
+  const errorBanner = document.getElementById('auth-error-banner');
+  const passInput = document.getElementById('auth-password-input');
+
+  if (modal) modal.style.display = 'flex';
+  if (errorBanner) {
+    if (errMsg) {
+      errorBanner.textContent = errMsg;
+      errorBanner.style.display = 'block';
+    } else {
+      errorBanner.style.display = 'none';
+    }
+  }
+  if (passInput) {
+    passInput.value = '';
+    passInput.focus();
+  }
+}
+
+function hideAuthModal() {
+  const modal = document.getElementById('auth-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+function startDashboard() {
+  if (!isDashboardInitialized) {
+    isDashboardInitialized = true;
+    initStats();
+    initTokens();
+    initApiKeys();
+    initChat();
+    initTesting();
+    initLogs();
+  } else {
+    if (typeof refreshStats === 'function') refreshStats();
+    if (typeof window.loadTokensGlobal === 'function') window.loadTokensGlobal();
+    if (typeof window.loadApiKeysGlobal === 'function') window.loadApiKeysGlobal();
+    if (typeof window.reconnectLogs === 'function') window.reconnectLogs();
+  }
+}
+
+function initAuth() {
+  const loginForm = document.getElementById('auth-login-form');
+  const passInput = document.getElementById('auth-password-input');
+  const btnToggleAuthPass = document.getElementById('btn-toggle-auth-password');
+  const errorBanner = document.getElementById('auth-error-banner');
+  const btnSubmit = document.getElementById('btn-auth-submit');
+
+  // Toggle password visibility
+  if (btnToggleAuthPass && passInput) {
+    btnToggleAuthPass.addEventListener('click', () => {
+      passInput.type = passInput.type === 'password' ? 'text' : 'password';
+    });
+  }
+
+  // Handle Login Submit
+  if (loginForm) {
+    loginForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const password = passInput ? passInput.value : '';
+      if (!password) return;
+
+      try {
+        if (btnSubmit) btnSubmit.disabled = true;
+        if (errorBanner) errorBanner.style.display = 'none';
+
+        const res = await originalFetch('/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success && data.token) {
+          setDashboardToken(data.token);
+          hideAuthModal();
+          startDashboard();
+        } else {
+          showAuthModal(data.error?.message || 'Incorrect password. Please try again.');
+        }
+      } catch (err) {
+        showAuthModal('Network error during authentication: ' + err.message);
+      } finally {
+        if (btnSubmit) btnSubmit.disabled = false;
+      }
+    });
+  }
+
+  // Security Modal Controls
+  const btnSecurity = document.getElementById('btn-dashboard-security');
+  const securityModal = document.getElementById('security-modal');
+  const btnCloseSecurity = document.getElementById('btn-close-security-modal');
+  const formChangePass = document.getElementById('form-change-password');
+  const btnLogout = document.getElementById('btn-dashboard-logout');
+  const secErrorBanner = document.getElementById('security-error-banner');
+  const secSuccessBanner = document.getElementById('security-success-banner');
+
+  if (btnSecurity && securityModal) {
+    btnSecurity.addEventListener('click', () => {
+      securityModal.style.display = 'flex';
+      if (secErrorBanner) secErrorBanner.style.display = 'none';
+      if (secSuccessBanner) secSuccessBanner.style.display = 'none';
+      const cur = document.getElementById('current-password-input');
+      if (cur) { cur.value = ''; cur.focus(); }
+      const np = document.getElementById('new-password-input');
+      if (np) np.value = '';
+      const cnp = document.getElementById('confirm-password-input');
+      if (cnp) cnp.value = '';
+    });
+  }
+
+  if (btnCloseSecurity && securityModal) {
+    btnCloseSecurity.addEventListener('click', () => {
+      securityModal.style.display = 'none';
+    });
+  }
+
+  // Handle Change Password Submit
+  if (formChangePass) {
+    formChangePass.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const curInput = document.getElementById('current-password-input');
+      const newInput = document.getElementById('new-password-input');
+      const confirmInput = document.getElementById('confirm-password-input');
+
+      const currentPassword = curInput ? curInput.value : '';
+      const newPassword = newInput ? newInput.value : '';
+      const confirmPassword = confirmInput ? confirmInput.value : '';
+
+      if (secErrorBanner) secErrorBanner.style.display = 'none';
+      if (secSuccessBanner) secSuccessBanner.style.display = 'none';
+
+      if (newPassword !== confirmPassword) {
+        if (secErrorBanner) {
+          secErrorBanner.textContent = 'New passwords do not match.';
+          secErrorBanner.style.display = 'block';
+        }
+        return;
+      }
+
+      try {
+        const btnSave = document.getElementById('btn-save-password');
+        if (btnSave) btnSave.disabled = true;
+
+        const res = await fetch('/api/auth/change-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ currentPassword, newPassword }),
+        });
+
+        const data = await res.json();
+        if (res.ok && data.success && data.token) {
+          setDashboardToken(data.token);
+          if (secSuccessBanner) {
+            secSuccessBanner.textContent = 'Password updated successfully! Persisted to .env.';
+            secSuccessBanner.style.display = 'block';
+          }
+          if (curInput) curInput.value = '';
+          if (newInput) newInput.value = '';
+          if (confirmInput) confirmInput.value = '';
+          setTimeout(() => {
+            if (securityModal) securityModal.style.display = 'none';
+          }, 1400);
+        } else {
+          if (secErrorBanner) {
+            secErrorBanner.textContent = data.error?.message || 'Failed to update password.';
+            secErrorBanner.style.display = 'block';
+          }
+        }
+      } catch (err) {
+        if (secErrorBanner) {
+          secErrorBanner.textContent = 'Request error: ' + err.message;
+          secErrorBanner.style.display = 'block';
+        }
+      } finally {
+        const btnSave = document.getElementById('btn-save-password');
+        if (btnSave) btnSave.disabled = false;
+      }
+    });
+  }
+
+  // Handle Logout
+  if (btnLogout) {
+    btnLogout.addEventListener('click', async () => {
+      try {
+        await fetch('/api/auth/logout', { method: 'POST' });
+      } catch (e) {}
+      setDashboardToken(null);
+      if (securityModal) securityModal.style.display = 'none';
+      showAuthModal('You have locked the studio.');
+    });
+  }
+
+  // Check initial authentication status
+  const existingToken = getDashboardToken();
+  if (!existingToken) {
+    showAuthModal();
+  } else {
+    originalFetch('/api/auth/status', {
+      headers: { 'X-Dashboard-Token': existingToken },
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && data.authenticated) {
+          hideAuthModal();
+          startDashboard();
+        } else {
+          setDashboardToken(null);
+          showAuthModal();
+        }
+      })
+      .catch(() => {
+        showAuthModal();
+      });
+  }
+}
+
+/* =====================================================
+   1. Theme Management (Light & Dark Mode)
    ===================================================== */
 function initTheme() {
   const toggleBtn = document.getElementById('theme-toggle');
@@ -325,6 +587,290 @@ async function initTokens() {
   });
 
   loadTokens();
+}
+
+/* =====================================================
+   2b. Client API Keys Manager
+   ===================================================== */
+function initApiKeys() {
+  const apikeysList = document.getElementById('apikeys-list');
+  const createForm = document.getElementById('form-create-key');
+  const btnCopyBaseUrl = document.getElementById('btn-copy-base-url');
+  const clientBaseUrlEl = document.getElementById('client-base-url');
+  const activeCountEl = document.getElementById('keys-active-count');
+  const totalCountEl = document.getElementById('keys-total-count');
+  const newKeyAlert = document.getElementById('new-key-alert');
+  const newKeyValue = document.getElementById('new-key-value');
+  const btnCopyNewKey = document.getElementById('btn-copy-new-key');
+
+  const editModal = document.getElementById('edit-key-modal');
+  const formEditKey = document.getElementById('form-edit-key');
+  const editIdInput = document.getElementById('edit-key-id');
+  const editNameInput = document.getElementById('edit-key-name');
+  const editActiveInput = document.getElementById('edit-key-active');
+  const btnCloseEditModal = document.getElementById('btn-close-edit-key-modal');
+  const btnCancelEditKey = document.getElementById('btn-cancel-edit-key');
+
+  let currentKeys = [];
+  let revealedKeys = new Set();
+
+  function formatKeyDate(isoStr) {
+    if (!isoStr) return 'Never';
+    try {
+      const d = new Date(isoStr);
+      return d.toLocaleDateString() + ' ' + d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    } catch {
+      return String(isoStr);
+    }
+  }
+
+  // Copy Base URL button
+  if (btnCopyBaseUrl && clientBaseUrlEl) {
+    btnCopyBaseUrl.addEventListener('click', () => {
+      navigator.clipboard.writeText(clientBaseUrlEl.textContent.trim()).then(() => {
+        const origText = btnCopyBaseUrl.querySelector('span')?.textContent || 'Copy';
+        const span = btnCopyBaseUrl.querySelector('span');
+        if (span) span.textContent = 'Copied!';
+        setTimeout(() => { if (span) span.textContent = origText; }, 1800);
+      });
+    });
+  }
+
+  // Copy newly generated key button
+  if (btnCopyNewKey && newKeyValue) {
+    btnCopyNewKey.addEventListener('click', () => {
+      navigator.clipboard.writeText(newKeyValue.textContent.trim()).then(() => {
+        const orig = btnCopyNewKey.querySelector('span')?.textContent || 'Copy';
+        const span = btnCopyNewKey.querySelector('span');
+        if (span) span.textContent = 'Copied!';
+        setTimeout(() => { if (span) span.textContent = orig; }, 1800);
+      });
+    });
+  }
+
+  // Close Edit Modal
+  const closeEdit = () => {
+    if (editModal) editModal.style.display = 'none';
+  };
+  if (btnCloseEditModal) btnCloseEditModal.addEventListener('click', closeEdit);
+  if (btnCancelEditKey) btnCancelEditKey.addEventListener('click', closeEdit);
+
+  // Edit Key Submit
+  if (formEditKey) {
+    formEditKey.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = editIdInput ? editIdInput.value : '';
+      const name = editNameInput ? editNameInput.value.trim() : '';
+      const active = editActiveInput ? editActiveInput.checked : true;
+
+      if (!id || !name) return;
+
+      try {
+        const res = await fetch(`/api/keys/${encodeURIComponent(id)}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, active }),
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          throw new Error(data.error?.message || 'Failed to update key');
+        }
+        closeEdit();
+        loadApiKeys();
+      } catch (err) {
+        alert(err.message);
+      }
+    });
+  }
+
+  async function loadApiKeys() {
+    if (!apikeysList) return;
+    try {
+      const res = await fetch('/api/keys');
+      if (!res.ok) return;
+      const data = await res.json();
+      currentKeys = data.keys || [];
+
+      // Update counters
+      const total = currentKeys.length;
+      const activeCount = currentKeys.filter(k => k.active).length;
+      if (totalCountEl) totalCountEl.textContent = total;
+      if (activeCountEl) activeCountEl.textContent = activeCount;
+
+      if (currentKeys.length === 0) {
+        apikeysList.innerHTML = '<div class="empty-state">No API keys created yet. All clients can connect until a key is added.</div>';
+        return;
+      }
+
+      apikeysList.innerHTML = currentKeys.map(k => {
+        const isRevealed = revealedKeys.has(k.id);
+        const displayKey = isRevealed ? escapeHtml(k.key) : escapeHtml(k.maskedKey);
+        const statusClass = k.active ? 'active' : 'disabled';
+        const statusText = k.active ? 'Active' : 'Disabled';
+        const toggleActionText = k.active ? 'Disable' : 'Enable';
+
+        return `
+          <div class="apikey-item ${!k.active ? 'disabled' : ''}">
+            <div class="apikey-header">
+              <div class="apikey-title-row">
+                <strong>${escapeHtml(k.name)}</strong>
+                <span class="status-pill ${statusClass}">${statusText}</span>
+              </div>
+              <span class="apikey-date">Created ${formatKeyDate(k.createdAt)}</span>
+            </div>
+
+            <div class="apikey-secret-box">
+              <code class="apikey-code" id="apikey-display-${k.id}">${displayKey}</code>
+              <div class="secret-tools">
+                <button type="button" class="btn-copy-mini btn-toggle-key-view" data-id="${k.id}" title="${isRevealed ? 'Hide secret' : 'Reveal secret'}">
+                  ${isRevealed ? 'Hide' : 'Reveal'}
+                </button>
+                <button type="button" class="btn-copy-mini btn-copy-key" data-key="${escapeHtml(k.key)}" title="Copy API Key">
+                  <span>Copy</span>
+                </button>
+              </div>
+            </div>
+
+            <div class="apikey-meta-row">
+              <span>Calls: ${k.requestCount || 0} | Last used: ${formatKeyDate(k.lastUsedAt)}</span>
+              <div class="apikey-actions">
+                <button type="button" class="btn btn-secondary btn-sm btn-edit-key" data-id="${k.id}" data-name="${escapeHtml(k.name)}" data-active="${k.active}">
+                  Edit
+                </button>
+                <button type="button" class="btn btn-secondary btn-sm btn-toggle-key" data-id="${k.id}" data-active="${k.active}">
+                  ${toggleActionText}
+                </button>
+                <button type="button" class="btn btn-danger-subtle btn-sm btn-delete-key" data-id="${k.id}" data-name="${escapeHtml(k.name)}">
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        `;
+      }).join('');
+
+      // Wire item events
+      apikeysList.querySelectorAll('.btn-toggle-key-view').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const id = btn.dataset.id;
+          if (revealedKeys.has(id)) {
+            revealedKeys.delete(id);
+          } else {
+            revealedKeys.add(id);
+          }
+          loadApiKeys();
+        });
+      });
+
+      apikeysList.querySelectorAll('.btn-copy-key').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const key = btn.dataset.key;
+          navigator.clipboard.writeText(key).then(() => {
+            const span = btn.querySelector('span');
+            if (span) {
+              const orig = span.textContent;
+              span.textContent = 'Copied!';
+              setTimeout(() => { span.textContent = orig; }, 1600);
+            }
+          });
+        });
+      });
+
+      apikeysList.querySelectorAll('.btn-edit-key').forEach(btn => {
+        btn.addEventListener('click', () => {
+          if (editModal && editIdInput && editNameInput && editActiveInput) {
+            editIdInput.value = btn.dataset.id;
+            editNameInput.value = btn.dataset.name;
+            editActiveInput.checked = btn.dataset.active === 'true';
+            editModal.style.display = 'flex';
+          }
+        });
+      });
+
+      apikeysList.querySelectorAll('.btn-toggle-key').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.dataset.id;
+          const currentActive = btn.dataset.active === 'true';
+          try {
+            await fetch(`/api/keys/${encodeURIComponent(id)}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ active: !currentActive }),
+            });
+            loadApiKeys();
+          } catch (err) {
+            alert('Failed to update status: ' + err.message);
+          }
+        });
+      });
+
+      apikeysList.querySelectorAll('.btn-delete-key').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const id = btn.dataset.id;
+          const name = btn.dataset.name;
+          if (confirm(`Are you sure you want to delete the API key "${name}"? Any client using it will no longer be able to authenticate.`)) {
+            try {
+              await fetch(`/api/keys/${encodeURIComponent(id)}`, { method: 'DELETE' });
+              loadApiKeys();
+            } catch (err) {
+              alert('Failed to delete key: ' + err.message);
+            }
+          }
+        });
+      });
+
+    } catch (err) {
+      console.debug('Failed to load API keys:', err);
+    }
+  }
+
+  window.loadApiKeysGlobal = loadApiKeys;
+
+  // Handle Create Key Form Submit
+  if (createForm) {
+    createForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const nameInput = document.getElementById('apikey-name');
+      const customInput = document.getElementById('apikey-custom');
+
+      const name = nameInput ? nameInput.value.trim() : '';
+      const customKey = customInput ? customInput.value.trim() : '';
+
+      if (!name) return;
+
+      try {
+        const btn = document.getElementById('btn-create-key');
+        if (btn) btn.disabled = true;
+
+        const res = await fetch('/api/keys', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, customKey: customKey || undefined }),
+        });
+
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          throw new Error(data.error?.message || 'Failed to generate API key');
+        }
+
+        // Show alert box with newly created key
+        if (newKeyAlert && newKeyValue) {
+          newKeyValue.textContent = data.key.key;
+          newKeyAlert.style.display = 'flex';
+        }
+
+        createForm.reset();
+        loadApiKeys();
+      } catch (err) {
+        alert(err.message);
+      } finally {
+        const btn = document.getElementById('btn-create-key');
+        if (btn) btn.disabled = false;
+      }
+    });
+  }
+
+  loadApiKeys();
 }
 
 /* =====================================================
@@ -798,26 +1344,47 @@ function initLogs() {
     }
   }
 
-  const eventSource = new EventSource('/api/logs/stream');
+  let eventSource = null;
 
-  eventSource.onmessage = (event) => {
-    try {
-      const data = JSON.parse(event.data);
-      if (data.type === 'init' && Array.isArray(data.logs)) {
-        logs = data.logs;
-        renderLogs();
-      } else if (data.type === 'log' && data.entry) {
-        logs.push(data.entry);
-        if (logs.length > 500) logs.shift();
-        renderLogs();
-      } else if (data.type === 'clear') {
-        logs = [];
-        renderLogs();
-      }
-    } catch (e) {
-      console.error('Log parse error:', e);
+  function connectLogsStream() {
+    if (eventSource) {
+      try { eventSource.close(); } catch (e) {}
+      eventSource = null;
     }
-  };
+
+    const token = getDashboardToken();
+    const streamUrl = token ? `/api/logs/stream?token=${encodeURIComponent(token)}` : '/api/logs/stream';
+    eventSource = new EventSource(streamUrl);
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'init' && Array.isArray(data.logs)) {
+          logs = data.logs;
+          renderLogs();
+        } else if (data.type === 'log' && data.entry) {
+          logs.push(data.entry);
+          if (logs.length > 500) logs.shift();
+          renderLogs();
+        } else if (data.type === 'clear') {
+          logs = [];
+          renderLogs();
+        }
+      } catch (e) {
+        console.error('Log parse error:', e);
+      }
+    };
+
+    eventSource.onerror = () => {
+      // EventSource reconnects automatically, but check if unauthorized
+      if (!getDashboardToken()) {
+        try { eventSource.close(); } catch (e) {}
+      }
+    };
+  }
+
+  connectLogsStream();
+  window.reconnectLogs = connectLogsStream;
 
   searchInput.addEventListener('input', renderLogs);
   levelFilter.addEventListener('change', renderLogs);

@@ -45,6 +45,8 @@ High-performance, OpenAI-compatible proxy (`/v1/chat/completions`) for Z.ai web 
 - **Thinking Mode**: Supports `low`, `high`, and `max` reasoning efforts, streaming thinking traces via `reasoning_content`.
 - **Low RAM Footprint (< 800MB)**: Lean Chromium flags, 16MB memory cache cap, zero-bfcache, and decorative image blocking.
 - **Web Studio Dashboard**: Edge-to-edge UI at `http://127.0.0.1:3000` with live stats ribbon, dark/light themes, token management, interactive playground, and live stdout terminal.
+- **API Key Management**: Built-in "API Keys" dashboard tab to create, label, toggle, copy, and delete OpenAI-compatible API keys (`sk-zai-...`), with persistent storage and request counters.
+- **Dashboard Security & Password Protection**: Built-in authentication protecting the Web Studio dashboard and management APIs (default password: `admin`), with in-browser password updates persisted directly to `.env`.
 - **Docker & Tunnel Ready**: Pre-built Dockerfile and 1-command public tunnel via Cloudflare (`npm run tunnel`).
 
 ---
@@ -74,6 +76,7 @@ Key environment variables:
 
 | Variable | Default | Description |
 | :--- | :---: | :--- |
+| `DASHBOARD_PASSWORD` | `admin` | Web Studio dashboard protection password |
 | `BROWSER_ENGINE` | `cloakbrowser` | Browser engine: `cloakbrowser` (Chromium, default) or `camoufox` (Gecko) |
 | `PORT` | `3000` | Server listening port |
 | `HOST` | `127.0.0.1` | Host address (`0.0.0.0` for Docker/LAN) |
@@ -309,6 +312,10 @@ Install Tailscale on both your VPS and your local machine. You can then connect 
 | :--- | :--- | :--- |
 | `POST` | `/v1/chat/completions` | OpenAI Chat Completions (streaming, tools, reasoning) |
 | `GET` | `/v1/models` | Lists available models |
+| `POST` | `/api/auth/login` | Authenticate dashboard session using password |
+| `GET` | `/api/auth/status` | Check dashboard session authentication state |
+| `POST` | `/api/auth/change-password` | Update dashboard password and persist to .env |
+| `POST` | `/api/auth/logout` | Revoke active dashboard session |
 | `GET` | `/v1/stats` | Cumulative tokens, requests, and cost savings (`/api/stats`) |
 | `POST` | `/api/stats/reset` | Resets usage and savings metrics |
 | `GET` | `/v1/tokens` | Lists configured auth tokens and cooldown statuses |
@@ -317,6 +324,10 @@ Install Tailscale on both your VPS and your local machine. You can then connect 
 | `POST` | `/api/tokens/clear-cooldowns` | Clears all active token cooldown timers |
 | `DELETE`| `/v1/tokens/:id` | Deletes an auth token |
 | `POST` | `/v1/tokens/:id/activate` | Sets active auth token |
+| `GET` | `/api/keys` | Lists all generated API keys (`/v1/api-keys`) |
+| `POST` | `/api/keys` | Creates a new API key with name and optional custom key |
+| `PUT` | `/api/keys/:id` | Updates key name or active/disabled status |
+| `DELETE`| `/api/keys/:id` | Deletes an API key |
 | `GET` | `/v1/queue/status` | Current request queue state |
 | `POST` | `/v1/subagent/task` | Multi-file subagent code generator |
 | `GET` | `/health` | Health check endpoint |

@@ -13,6 +13,7 @@ user-data-cloak/
 .env.*.local
 tokens.json
 stats.json
+api_keys.json
 
 # Logs & Diagnostics
 *.log

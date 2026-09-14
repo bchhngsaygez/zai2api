@@ -8,6 +8,10 @@ import { subagentRouter } from './routes/subagent.js';
 import { tokensRouter } from './routes/tokens.js';
 import { logsRouter } from './routes/logs.js';
 import { statsRouter } from './routes/stats.js';
+import { authRouter } from './routes/auth.js';
+import { apiKeysRouter } from './routes/apiKeys.js';
+import { authManager } from './authManager.js';
+import { apiKeysManager } from './apiKeysManager.js';
 import { logger } from './logger.js';
 
 export function createApp() {
@@ -34,12 +38,60 @@ export function createApp() {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
+  // Register public auth APIs
+  app.use(authRouter);
+
+  // Protected dashboard APIs (requires dashboard authentication)
+  app.use(['/api/tokens', '/v1/tokens'], authManager.requireDashboardAuth);
+  app.use('/api/logs', authManager.requireDashboardAuth);
+  app.use(['/api/stats', '/v1/stats'], authManager.requireDashboardAuth);
+  app.use(['/api/keys', '/v1/api-keys'], authManager.requireDashboardAuth);
+
   // Register dashboard APIs
   app.use(tokensRouter);
   app.use(logsRouter);
   app.use(statsRouter);
+  app.use(apiKeysRouter);
+
+  // Client API key validation middleware for OpenAI endpoints
+  const validateApiKeyMiddleware = (req, res, next) => {
+    // If no custom API keys are defined, allow requests for backward compatibility
+    if (!apiKeysManager.hasKeys()) {
+      return next();
+    }
+
+    // Allow requests originating from authenticated Web Studio dashboard session
+    const dashToken = authManager.extractToken(req);
+    if (dashToken && authManager.isValidSession(dashToken)) {
+      return next();
+    }
+
+    let clientKey = '';
+    const authHeader = req.headers['authorization'];
+    if (authHeader && authHeader.startsWith('Bearer ')) {
+      clientKey = authHeader.slice(7).trim();
+    } else if (req.headers['x-api-key']) {
+      clientKey = String(req.headers['x-api-key']).trim();
+    }
+
+    const validation = apiKeysManager.validateKey(clientKey);
+    if (validation.valid) {
+      req.apiKey = validation.key;
+      return next();
+    }
+
+    return res.status(401).json({
+      error: {
+        message: validation.reason || 'Incorrect or disabled API key provided.',
+        type: 'invalid_request_error',
+        param: null,
+        code: 'invalid_api_key',
+      },
+    });
+  };
 
   // Register OpenAI-compatible and subagent routes
+  app.use(validateApiKeyMiddleware);
   app.use(modelsRouter);
   app.use(chatRouter);
   app.use(subagentRouter);
